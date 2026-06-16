@@ -1,0 +1,75 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    /* Equity Bank Color Palette */
+    --background: 0 0% 100%;
+    --foreground: 0 0% 0%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 0%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 0%;
+
+    /* Equity Primary Red - #b71c1c */
+    --primary: 0 73% 41%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Light backgrounds */
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 0%;
+
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 45%;
+
+    --accent: 0 73% 41%;
+    --accent-foreground: 0 0% 100%;
+    
+    /* Sidebar background */
+    --sidebar: 0 73% 41%;
+    --sidebar-foreground: 0 0% 100%;
+    --sidebar-accent: 0 0% 100%;
+    --sidebar-accent-foreground: 0 73% 41%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Status colors */
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 45 93% 47%;
+    --warning-foreground: 0 0% 0%;
+
+    --pending: 45 93% 47%;
+    --escalated: 0 84% 60%;
+    --resolved: 142 71% 45%;
+
+    --border: 0 0% 90%;
+    --input: 0 0% 90%;
+    --ring: 0 67% 38%;
+
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  html {
+    font-size: 15px;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}

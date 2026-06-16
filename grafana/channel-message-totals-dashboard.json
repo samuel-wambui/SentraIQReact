@@ -1,0 +1,474 @@
+{
+  "dashboard": {
+    "annotations": {
+      "list": [
+        {
+          "builtIn": 1,
+          "datasource": {
+            "type": "grafana",
+            "uid": "-- Grafana --"
+          },
+          "enable": true,
+          "hide": true,
+          "iconColor": "rgba(0, 211, 255, 1)",
+          "name": "Annotations & Alerts",
+          "type": "dashboard"
+        }
+      ]
+    },
+    "editable": true,
+    "fiscalYearStartMonth": 0,
+    "graphTooltip": 1,
+    "id": null,
+    "links": [],
+    "panels": [
+      {
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "senctraiq-postgres"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "mappings": [],
+            "min": 0,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green"
+                }
+              ]
+            },
+            "unit": "short"
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "WhatsApp"
+              },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "fixedColor": "#25D366",
+                    "mode": "fixed"
+                  }
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Facebook"
+              },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "fixedColor": "#1877F2",
+                    "mode": "fixed"
+                  }
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "X"
+              },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "fixedColor": "#111111",
+                    "mode": "fixed"
+                  }
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Instagram"
+              },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "fixedColor": "#E1306C",
+                    "mode": "fixed"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 0
+        },
+        "id": 1,
+        "options": {
+          "orientation": "auto",
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true,
+          "sizing": "auto"
+        },
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-postgresql-datasource",
+              "uid": "senctraiq-postgres"
+            },
+            "editorMode": "code",
+            "format": "table",
+            "rawQuery": true,
+            "rawSql": "WITH raw_messages AS (\n  SELECT m.created_at, c.source\n  FROM conversation_messages m\n  LEFT JOIN conversations c ON c.id = m.conversation_id\n\n  UNION ALL\n\n  SELECT cm.created_at, c.source\n  FROM conversation_continuation_messages cm\n  LEFT JOIN conversations c ON c.id = cm.conversation_id\n), message_channels AS (\n  SELECT\n    (created_at AT TIME ZONE 'Africa/Nairobi') AS created_at,\n    CASE\n      WHEN source_map.source_key LIKE '%whatsapp%' THEN 'WhatsApp'\n      WHEN source_map.source_key IN ('facebook', 'fb', 'messenger')\n        OR source_map.source_key LIKE '%facebook%'\n        OR source_map.source_key LIKE '%messenger%' THEN 'Facebook'\n      WHEN source_map.source_key IN ('x', 'xcom', 'twitter')\n        OR source_map.source_key LIKE '%twitter%' THEN 'X'\n      WHEN source_map.source_key IN ('instagram', 'ig')\n        OR source_map.source_key LIKE '%instagram%' THEN 'Instagram'\n      ELSE coalesce(nullif(trim(source), ''), 'Unknown')\n    END AS channel\n  FROM raw_messages\n  CROSS JOIN LATERAL (\n    SELECT regexp_replace(lower(coalesce(source, '')), '[^a-z0-9]', '', 'g') AS source_key\n  ) source_map\n), counts AS (\n  SELECT channel, count(*)::bigint AS total_messages\n  FROM message_channels\n  WHERE $__timeFilter(created_at)\n  GROUP BY channel\n)\nSELECT\n  coalesce(max(total_messages) FILTER (WHERE channel = 'WhatsApp'), 0)::bigint AS \"WhatsApp\",\n  coalesce(max(total_messages) FILTER (WHERE channel = 'Facebook'), 0)::bigint AS \"Facebook\",\n  coalesce(max(total_messages) FILTER (WHERE channel = 'X'), 0)::bigint AS \"X\",\n  coalesce(max(total_messages) FILTER (WHERE channel = 'Instagram'), 0)::bigint AS \"Instagram\"\nFROM counts;",
+            "refId": "A"
+          }
+        ],
+        "title": "Channel Messages",
+        "type": "gauge"
+      },
+      {
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "senctraiq-postgres"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "axisBorderShow": false,
+              "axisCenteredZero": false,
+              "axisColorMode": "text",
+              "axisLabel": "Messages",
+              "axisPlacement": "auto",
+              "drawStyle": "line",
+              "fillOpacity": 16,
+              "gradientMode": "none",
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "viz": false
+              },
+              "lineInterpolation": "smooth",
+              "lineWidth": 2,
+              "pointSize": 5,
+              "scaleDistribution": {
+                "type": "linear"
+              },
+              "showPoints": "auto",
+              "spanNulls": true,
+              "stacking": {
+                "group": "A",
+                "mode": "none"
+              },
+              "thresholdsStyle": {
+                "mode": "off"
+              }
+            },
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green"
+                }
+              ]
+            },
+            "unit": "short"
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "WhatsApp"
+              },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "fixedColor": "#25D366",
+                    "mode": "fixed"
+                  }
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Facebook"
+              },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "fixedColor": "#1877F2",
+                    "mode": "fixed"
+                  }
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "X"
+              },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "fixedColor": "#111111",
+                    "mode": "fixed"
+                  }
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Instagram"
+              },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "fixedColor": "#E1306C",
+                    "mode": "fixed"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "gridPos": {
+          "h": 10,
+          "w": 24,
+          "x": 0,
+          "y": 8
+        },
+        "id": 5,
+        "options": {
+          "legend": {
+            "calcs": [
+              "sum",
+              "lastNotNull"
+            ],
+            "displayMode": "table",
+            "placement": "right",
+            "showLegend": true
+          },
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc"
+          }
+        },
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-postgresql-datasource",
+              "uid": "senctraiq-postgres"
+            },
+            "editorMode": "code",
+            "format": "time_series",
+            "rawQuery": true,
+            "rawSql": "WITH raw_messages AS (\n  SELECT m.created_at, c.source\n  FROM conversation_messages m\n  LEFT JOIN conversations c ON c.id = m.conversation_id\n\n  UNION ALL\n\n  SELECT cm.created_at, c.source\n  FROM conversation_continuation_messages cm\n  LEFT JOIN conversations c ON c.id = cm.conversation_id\n), message_channels AS (\n  SELECT\n    (created_at AT TIME ZONE 'Africa/Nairobi') AS created_at,\n    CASE\n      WHEN source_map.source_key LIKE '%whatsapp%' THEN 'WhatsApp'\n      WHEN source_map.source_key IN ('facebook', 'fb', 'messenger')\n        OR source_map.source_key LIKE '%facebook%'\n        OR source_map.source_key LIKE '%messenger%' THEN 'Facebook'\n      WHEN source_map.source_key IN ('x', 'xcom', 'twitter')\n        OR source_map.source_key LIKE '%twitter%' THEN 'X'\n      WHEN source_map.source_key IN ('instagram', 'ig')\n        OR source_map.source_key LIKE '%instagram%' THEN 'Instagram'\n      ELSE coalesce(nullif(trim(source), ''), 'Unknown')\n    END AS channel\n  FROM raw_messages\n  CROSS JOIN LATERAL (\n    SELECT regexp_replace(lower(coalesce(source, '')), '[^a-z0-9]', '', 'g') AS source_key\n  ) source_map\n)\nSELECT\n  $__timeGroupAlias(created_at, $__interval),\n  channel AS metric,\n  count(*) AS value\nFROM message_channels\nWHERE $__timeFilter(created_at)\nGROUP BY 1, 2\nORDER BY 1;",
+            "refId": "A"
+          }
+        ],
+        "title": "Messages by Channel Over Time",
+        "type": "timeseries"
+      },
+      {
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "senctraiq-postgres"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "axisBorderShow": false,
+              "axisCenteredZero": false,
+              "axisColorMode": "text",
+              "axisLabel": "Cumulative messages",
+              "axisPlacement": "auto",
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "viz": false
+              },
+              "lineInterpolation": "smooth",
+              "lineWidth": 2,
+              "pointSize": 5,
+              "scaleDistribution": {
+                "type": "linear"
+              },
+              "showPoints": "auto",
+              "spanNulls": true,
+              "stacking": {
+                "group": "A",
+                "mode": "none"
+              },
+              "thresholdsStyle": {
+                "mode": "off"
+              }
+            },
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green"
+                }
+              ]
+            },
+            "unit": "short"
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "WhatsApp"
+              },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "fixedColor": "#25D366",
+                    "mode": "fixed"
+                  }
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Facebook"
+              },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "fixedColor": "#1877F2",
+                    "mode": "fixed"
+                  }
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "X"
+              },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "fixedColor": "#111111",
+                    "mode": "fixed"
+                  }
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Instagram"
+              },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "fixedColor": "#E1306C",
+                    "mode": "fixed"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "gridPos": {
+          "h": 10,
+          "w": 24,
+          "x": 0,
+          "y": 18
+        },
+        "id": 6,
+        "options": {
+          "legend": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "displayMode": "table",
+            "placement": "right",
+            "showLegend": true
+          },
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc"
+          }
+        },
+        "targets": [
+          {
+            "datasource": {
+              "type": "grafana-postgresql-datasource",
+              "uid": "senctraiq-postgres"
+            },
+            "editorMode": "code",
+            "format": "time_series",
+            "rawQuery": true,
+            "rawSql": "WITH raw_messages AS (\n  SELECT m.created_at, c.source\n  FROM conversation_messages m\n  LEFT JOIN conversations c ON c.id = m.conversation_id\n\n  UNION ALL\n\n  SELECT cm.created_at, c.source\n  FROM conversation_continuation_messages cm\n  LEFT JOIN conversations c ON c.id = cm.conversation_id\n), message_channels AS (\n  SELECT\n    (created_at AT TIME ZONE 'Africa/Nairobi') AS created_at,\n    CASE\n      WHEN source_map.source_key LIKE '%whatsapp%' THEN 'WhatsApp'\n      WHEN source_map.source_key IN ('facebook', 'fb', 'messenger')\n        OR source_map.source_key LIKE '%facebook%'\n        OR source_map.source_key LIKE '%messenger%' THEN 'Facebook'\n      WHEN source_map.source_key IN ('x', 'xcom', 'twitter')\n        OR source_map.source_key LIKE '%twitter%' THEN 'X'\n      WHEN source_map.source_key IN ('instagram', 'ig')\n        OR source_map.source_key LIKE '%instagram%' THEN 'Instagram'\n      ELSE coalesce(nullif(trim(source), ''), 'Unknown')\n    END AS channel\n  FROM raw_messages\n  CROSS JOIN LATERAL (\n    SELECT regexp_replace(lower(coalesce(source, '')), '[^a-z0-9]', '', 'g') AS source_key\n  ) source_map\n), bucketed_messages AS (\n  SELECT\n    $__timeGroupAlias(created_at, $__interval),\n    channel,\n    count(*) AS value\n  FROM message_channels\n  WHERE $__timeFilter(created_at)\n  GROUP BY 1, 2\n)\nSELECT\n  time,\n  channel AS metric,\n  sum(value) OVER (PARTITION BY channel ORDER BY time) AS value\nFROM bucketed_messages\nORDER BY time;",
+            "refId": "A"
+          }
+        ],
+        "title": "Cumulative Messages by Channel",
+        "type": "timeseries"
+      }
+    ],
+    "refresh": "",
+    "schemaVersion": 42,
+    "tags": [
+      "messages",
+      "channels",
+      "gauge"
+    ],
+    "templating": {
+      "list": []
+    },
+    "time": {
+      "from": "now-30d",
+      "to": "now"
+    },
+    "timepicker": {},
+    "timezone": "browser",
+    "title": "Channel Message Overview",
+    "uid": "socialmedia-channel-messages",
+    "version": 0,
+    "weekStart": ""
+  },
+  "folderUid": "socialmedia-sentiments",
+  "message": "Count channels from conversation and continuation messages",
+  "overwrite": true
+}

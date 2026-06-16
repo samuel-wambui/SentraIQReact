@@ -62,7 +62,14 @@ export const ShiftsApi = {
 export const OAuthClientsApi = {
   register: (body?: unknown) => apiFetch(`/api/oauth2/clients/register`, { method: "POST", body }),
   registeredClients: () => apiFetch(`/api/oauth2/clients/registeredClients`),
-  deleteClient: (clientId: string) => apiFetch(`/api/oauth2/clients/${encodeURIComponent(clientId)}`, { method: "DELETE" }),
+  listClients: (includeDeleted = false) =>
+    apiFetch(withQuery(`/api/oauth2/clients`, { includeDeleted: String(includeDeleted) })),
+  getClient: (clientId: string, includeDeleted = false) =>
+    apiFetch(withQuery(`/api/oauth2/clients/${encodeURIComponent(clientId)}`, { includeDeleted: String(includeDeleted) })),
+  updateClient: (clientId: string, body?: unknown, modifiedBy?: string) =>
+    apiFetch(withQuery(`/api/oauth2/clients/${encodeURIComponent(clientId)}`, { modifiedBy }), { method: "PUT", body }),
+  deleteClient: (clientId: string, deletedBy?: string) =>
+    apiFetch(withQuery(`/api/oauth2/clients/${encodeURIComponent(clientId)}`, { deletedBy }), { method: "DELETE" }),
 };
 
 export const AuthApi = {

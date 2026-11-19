@@ -1,17 +1,20 @@
-import { MoreHorizontal, Clock, MessageCircle, UserCheck, UserRound } from "lucide-react";
+import { MoreHorizontal, Clock, MessageCircle, UserCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { CustomerAvatar } from "@/components/messages/CustomerAvatar";
 import {
   categoryLabel,
   channelLabel,
   getConversationChannel,
   getConversationCustomerLabel,
+  getConversationDisplayStatus,
   getConversationStatus,
   getMessageText,
+  getProfilePictureUrl,
   isAiAgentHandoverActive,
   isConversationUnassigned,
-  statusLabel,
+  isReturnedToAiConversation,
 } from "@/lib/conversations";
 import type { ConversationEntity, ConversationMessageEntity } from "@/lib/conversations";
 import {
@@ -31,8 +34,6 @@ import {
   isLastAnsweredByAiAgent,
   formatDateTime,
   statusBadgeVariant,
-  formatPendingCloseTime,
-  isPendingCloseEligible,
 } from "./messages.utils";
 
 interface MessageTicketCardProps {
@@ -79,6 +80,8 @@ export const MessageTicketCard = ({
   const lastAnsweredAt = getLastAnsweredAt(conversation);
   const answeredByAi = isLastAnsweredByAiAgent(conversation);
   const isThreadOpen = conversationId && selectedConversationId === conversationId;
+  const returnedToAi = isReturnedToAiConversation(conversation);
+  const displayedStatus = getConversationDisplayStatus(conversation);
 
   const actionButtonLabel =
     mode === "handover"
@@ -89,11 +92,8 @@ export const MessageTicketCard = ({
 
   const renderTicketActions = () => {
     const pickActionKey = `pick-${conversationId}`;
-    const pendingActionKey = `pending-${conversationId}`;
-    const closeActionKey = `close-${conversationId}`;
     const handoverActionKey = `handover-${conversationId}`;
-    const isPending = status === "PENDING_CUSTOMER";
-    const canClose = isPending && isPendingCloseEligible(conversation);
+    const closeActionKey = `close-${conversationId}`;
 
     if (mode === "active") {
       return (
@@ -110,37 +110,20 @@ export const MessageTicketCard = ({
                 Open thread
               </DropdownMenuItem>
             )}
-            {!assignedToMe && (
-              <DropdownMenuItem
-                disabled={!conversationId || actionLoading === pickActionKey}
-                onSelect={() => onPickConversation(conversation)}
-              >
-                {isConversationUnassigned(conversation) ? "Assign to me" : "Take over ticket"}
-              </DropdownMenuItem>
-            )}
-            {assignedToMe && !isPending && (
+            {assignedToMe && (
               <DropdownMenuItem
                 disabled={!conversationId || actionLoading === handoverActionKey}
                 onSelect={() => onHandoverConversation(conversation)}
               >
-                Hand over
-              </DropdownMenuItem>
-            )}
-            {!isPending && (
-              <DropdownMenuItem
-                disabled={!conversationId || actionLoading === pendingActionKey}
-                onSelect={() => onMarkPendingCustomer(conversation)}
-              >
-                Pending customer
+                Return to AI agent
               </DropdownMenuItem>
             )}
             {assignedToMe && (
               <DropdownMenuItem
-                className={canClose || !isPending ? "text-destructive focus:text-destructive" : undefined}
-                disabled={!conversationId || (isPending && !canClose) || actionLoading === closeActionKey}
+                disabled={!conversationId || actionLoading === closeActionKey}
                 onSelect={() => onOpenCloseDialog(conversation)}
               >
-                {isPending && !canClose ? formatPendingCloseTime(conversation) : "Close ticket"}
+                Close ticket
               </DropdownMenuItem>
             )}
           </DropdownMenuContent>
@@ -185,9 +168,10 @@ export const MessageTicketCard = ({
       <CardContent className="space-y-4 p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted">
-              <UserRound className="h-5 w-5 text-muted-foreground" />
-            </div>
+            <CustomerAvatar
+              profilePictureUrl={getProfilePictureUrl(latestMessage, conversation)}
+              label={customerLabel}
+            />
             <div className="min-w-0">
               <p className="truncate font-semibold text-foreground">
                 {customerLabel}
@@ -208,7 +192,7 @@ export const MessageTicketCard = ({
           </div>
 
           <div className="flex flex-wrap justify-end gap-2">
-            <Badge variant={statusBadgeVariant(status)}>{statusLabel(status)}</Badge>
+            <Badge variant={statusBadgeVariant(status)}>{displayedStatus}</Badge>
             <Badge variant="outline">{categoryLabel(conversation.category)}</Badge>
             {isAiAgentHandoverActive(conversation) && <Badge variant="secondary">AI handover</Badge>}
             {lastAnsweredBy && (
@@ -221,7 +205,8 @@ export const MessageTicketCard = ({
                 {assignedToMe ? "Assigned to me" : String(getAgentLabel(conversation))}
               </Badge>
             )}
-            {handoverAgent && <Badge variant="outline">Handed over by {String(handoverAgent)}</Badge>}
+            {handoverAgent && !returnedToAi && <Badge variant="outline">Handed over by {String(handoverAgent)}</Badge>}
+            {returnedToAi && <Badge variant="secondary">AI handling</Badge>}
           </div>
         </div>
 

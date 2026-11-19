@@ -105,11 +105,11 @@ const SYSTEM_ROLES = new Set(["SUPERUSER", "ADMIN", "ANALYST", "AGENT"]);
 const OIDC_SCOPES = ["openid", "profile", "email"];
 const OAUTH_GRANT_TYPES = ["authorization_code", "refresh_token", "client_credentials"];
 
-const GRAFANA_CLIENT_DEFAULTS: OAuthClientForm = {
-  clientId: "grafana",
-  clientName: "Grafana",
-  clientSecret: "secret",
-  redirectUris: "http://localhost:3000/login/generic_oauth",
+const DEFAULT_OAUTH_CLIENT_FORM: OAuthClientForm = {
+  clientId: "",
+  clientName: "",
+  clientSecret: "",
+  redirectUris: "",
   scopes: ["openid", "profile", "email"],
   grantTypes: ["authorization_code", "refresh_token"],
   requireConsent: false,
@@ -171,7 +171,7 @@ const SuperUserDashboard = () => {
   const [roleName, setRoleName] = useState("");
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
   const [deleteRole, setDeleteRole] = useState<RoleRecord | null>(null);
-  const [clientForm, setClientForm] = useState<OAuthClientForm>(GRAFANA_CLIENT_DEFAULTS);
+  const [clientForm, setClientForm] = useState<OAuthClientForm>(DEFAULT_OAUTH_CLIENT_FORM);
   const [clientLoading, setClientLoading] = useState(false);
   const [clientsLoading, setClientsLoading] = useState(false);
   const [clientEndpoints, setClientEndpoints] = useState<OAuthClientEndpoints | null>(null);
@@ -261,7 +261,7 @@ const SuperUserDashboard = () => {
   };
 
   const resetClientForm = () => {
-    setClientForm(GRAFANA_CLIENT_DEFAULTS);
+    setClientForm(DEFAULT_OAUTH_CLIENT_FORM);
     setEditingClientId(null);
     setRegisteredClient(null);
   };
@@ -539,7 +539,7 @@ const SuperUserDashboard = () => {
                     id="client-id"
                     value={clientForm.clientId}
                     onChange={(event) => updateClientForm("clientId", event.target.value)}
-                    placeholder="grafana"
+                    placeholder="my-client"
                   />
                 </div>
                 <div>
@@ -548,7 +548,7 @@ const SuperUserDashboard = () => {
                     id="client-name"
                     value={clientForm.clientName}
                     onChange={(event) => updateClientForm("clientName", event.target.value)}
-                    placeholder="Grafana"
+                    placeholder="Application name"
                   />
                 </div>
               </div>
@@ -570,7 +570,7 @@ const SuperUserDashboard = () => {
                   value={clientForm.redirectUris}
                   onChange={(event) => updateClientForm("redirectUris", event.target.value)}
                   rows={3}
-                  placeholder="http://localhost:3000/login/generic_oauth"
+                  placeholder="https://app.example.com/oauth/callback"
                 />
               </div>
 
@@ -636,7 +636,7 @@ const SuperUserDashboard = () => {
               <div className="flex items-center justify-between rounded-md border p-3">
                 <div>
                   <Label htmlFor="require-consent">Require Consent</Label>
-                  <p className="text-sm text-muted-foreground">Keep this off for Grafana silent SSO.</p>
+                  <p className="text-sm text-muted-foreground">When enabled, users must approve this client&apos;s access.</p>
                 </div>
                 <Switch
                   id="require-consent"
@@ -649,7 +649,7 @@ const SuperUserDashboard = () => {
 
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" onClick={resetClientForm}>
-              {editingClientId ? "Cancel Edit" : "Grafana Defaults"}
+              {editingClientId ? "Cancel Edit" : "Reset Form"}
             </Button>
             <Button type="button" onClick={saveOAuthClient} disabled={clientLoading}>
               {clientLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}

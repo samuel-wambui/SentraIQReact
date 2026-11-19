@@ -1,15 +1,12 @@
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
-import GrafanaDashboardPanel from "@/components/dashboard/GrafanaDashboardPanel";
 import Header from "@/components/Header";
-import Footer from "@/components/Footer";
 import { Button } from "@/components/ui/button";
-import { User } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import ProfileDialog from "@/components/profile/ProfileDialog";
 import SettingsDialog from "@/components/profile/SettingsDialog";
-import { cn } from "@/lib/utils";
 import {
   Popover,
   PopoverContent,
@@ -26,14 +23,7 @@ export const Layout = ({ children }: LayoutProps) => {
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
   const { user, signOut } = useAuth();
   const location = useLocation();
-  const isDashboardRoute = location.pathname === "/dashboard";
-  const [hasMountedGrafana, setHasMountedGrafana] = useState(isDashboardRoute);
-
-  useEffect(() => {
-    if (isDashboardRoute) {
-      setHasMountedGrafana(true);
-    }
-  }, [isDashboardRoute]);
+  const isDashboard = location.pathname === "/dashboard";
 
   return (
     <SidebarProvider>
@@ -41,15 +31,25 @@ export const Layout = ({ children }: LayoutProps) => {
         <AppSidebar />
         <SidebarInset className="flex flex-1 flex-col">
           <Header
+            title={isDashboard ? "Equity Bank Social Intelligence" : "SentraIQ"}
+            subtitle={isDashboard ? "Real-time monitoring of customer mentions and sentiment" : "Support operations"}
             actions={
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
                     variant="ghost"
-                    size="icon"
-                    className="text-[#b71c1c] hover:bg-[#b71c1c]/10"
+                    className="h-9 gap-2 px-1.5 text-left text-white hover:bg-white/10 hover:text-white"
                   >
-                    <User className="h-5 w-5" />
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#1d4ed8] text-xs font-semibold text-white">
+                      {(user?.firstName || user?.username || "U").slice(0, 1).toUpperCase()}
+                    </span>
+                    <span className="hidden min-w-0 sm:block">
+                      <span className="block max-w-28 truncate text-xs font-semibold text-white">
+                        {user?.name || user?.firstName || user?.username}
+                      </span>
+                      <span className="block text-[10px] text-white/70">Support agent</span>
+                    </span>
+                    <ChevronDown className="hidden h-4 w-4 text-white/70 sm:block" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-56 bg-white p-2" align="end">
@@ -84,22 +84,13 @@ export const Layout = ({ children }: LayoutProps) => {
               </Popover>
             }
           >
-            <SidebarTrigger className="ml-2 text-[#b71c1c] hover:bg-[#b71c1c]/10" />
+            <SidebarTrigger className="ml-0 text-slate-300 hover:bg-[#1c2a3e] hover:text-white" />
           </Header>
-          <main className="flex-1 overflow-x-hidden p-6">
+          <main className="flex-1 overflow-x-hidden bg-[#0b1220] p-4 sm:p-6 lg:p-8">
             <div className="space-y-6">
               {children ?? <Outlet />}
-              {hasMountedGrafana && (
-                <div
-                  aria-hidden={!isDashboardRoute}
-                  className={cn(!isDashboardRoute && "hidden")}
-                >
-                  <GrafanaDashboardPanel />
-                </div>
-              )}
             </div>
           </main>
-          <Footer />
         </SidebarInset>
       </div>
       <ProfileDialog

@@ -30,11 +30,17 @@ interface User {
   isOnLeave?: boolean;
 }
 
+interface LoginResult {
+  passwordChangeRequired: boolean;
+}
+
 interface AuthPayload {
   id?: string | number;
   username?: string;
   firstName?: string | null;
+  firstname?: string | null;
   lastName?: string | null;
+  lastname?: string | null;
   name?: string | null;
   accessToken?: string;
   refreshToken?: string;
@@ -47,6 +53,8 @@ interface AuthPayload {
   onShift?: boolean | null;
   isOnLeave?: boolean | null;
   onLeave?: boolean | null;
+  passwordChangeRequired?: boolean | null;
+  passwordChangeToken?: string | null;
   user?: AuthPayload;
   entity?: AuthPayload;
 }
@@ -55,7 +63,7 @@ interface AuthContextType {
   user: User | null;
   accessToken: string | null;
   loading: boolean;
-  login: (username: string, password: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<LoginResult>;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
   setUserAndToken: (token: string, user: User) => void;
@@ -71,6 +79,8 @@ const clearStoredAuth = () => {
 
 const toAuthUser = (source: AuthPayload, token?: string | null): User => {
   const tokenPayload = decodeJwtPayload(token);
+  const firstName = source.firstName ?? source.firstname ?? undefined;
+  const lastName = source.lastName ?? source.lastname ?? undefined;
   const roles = normalizeRoleValues(
     source.roles,
     source.role,
@@ -82,12 +92,12 @@ const toAuthUser = (source: AuthPayload, token?: string | null): User => {
   return {
     id: String(source.id ?? source.username ?? ""),
     username: source.username ?? "",
-    firstName: source.firstName ?? undefined,
-    lastName: source.lastName ?? undefined,
+    firstName,
+    lastName,
     name:
       source.name ||
-      (source.firstName && source.lastName
-        ? `${source.firstName} ${source.lastName}`
+      (firstName && lastName
+        ? `${firstName} ${lastName}`
         : undefined),
     roles,
     loggedIn: source.loggedIn ?? undefined,
@@ -224,7 +234,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     };
   }, [refreshUser]);
 
-  const login = async (username: string, password: string) => {
+  const login = async (username: string, password: string): Promise<LoginResult> => {
     console.log("Attempting login with username:", username);
     setLoading(true);
     try {
@@ -238,6 +248,20 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       );
 
       const entity = data.entity || data;
+      if (entity.passwordChangeRequired) {
+        if (!entity.passwordChangeToken) {
+          throw new Error("Password change token was not returned from server");
+        }
+
+        clearSession();
+        const params = new URLSearchParams({ token: entity.passwordChangeToken });
+        navigate(`/set-password?${params}`, {
+          replace: true,
+          state: { username: entity.username },
+        });
+        return { passwordChangeRequired: true };
+      }
+
       if (!entity.accessToken) {
         throw new Error("No accessToken returned from server");
       }
@@ -246,6 +270,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
       setAuthenticatedSession(entity.accessToken, entity.refreshToken, authUserSource);
       navigate("/");
+      return { passwordChangeRequired: false };
     } catch (err) {
       console.error("login error:", err);
       throw err;

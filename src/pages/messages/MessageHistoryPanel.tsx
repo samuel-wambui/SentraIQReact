@@ -9,7 +9,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import type { ConversationChannelSummary, ConversationThreadEntity } from "@/lib/conversations";
 import type { HistoryChannelBucket } from "./messages.utils";
 import {
-  DEFAULT_CONVERSATION_STATUSES,
   getConversationChannel,
   getConversationCustomerLabel,
   getMessageAnsweredBy,
@@ -22,7 +21,10 @@ import {
 import { categoryLabel } from "@/lib/conversations";
 import type { FormEvent } from "react";
 
+const TICKET_HISTORY_STATUSES = ["OPEN", "CLOSED"];
+
 interface MessageHistoryPanelProps {
+  showHeader?: boolean;
   historyAgent: string;
   historyCustomer: string;
   historyChannel: string | null;
@@ -99,6 +101,8 @@ const renderHistoryThread = (thread: ConversationThreadEntity, index: number) =>
   const lastAnsweredBy = conversation?.lastAnsweredBy;
   const answeredByAi = isLastAnsweredByAiAgent(conversation);
   const customerLabel = getConversationCustomerLabel(conversation);
+  const closingRemarks = conversation?.closingRemarks ?? conversation?.closing_remarks ?? null;
+  const closedBy = conversation?.ticketClosedBy ?? conversation?.ticket_closed_by ?? null;
 
   return (
     <Card key={`${conversationId}-${index}`}>
@@ -123,6 +127,13 @@ const renderHistoryThread = (thread: ConversationThreadEntity, index: number) =>
             ))}
           </div>
         </div>
+
+        {closingRemarks && (
+          <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">Closing remarks:</span> {closingRemarks}
+            {closedBy ? ` · Closed by ${closedBy}` : ""}
+          </div>
+        )}
 
         <div className="max-h-72 space-y-2 overflow-y-auto rounded-md border bg-muted/20 p-3">
           {messages.length === 0 ? (
@@ -173,6 +184,7 @@ const renderHistoryThread = (thread: ConversationThreadEntity, index: number) =>
 };
 
 export const MessageHistoryPanel = ({
+  showHeader = true,
   historyAgent,
   historyCustomer,
   historyChannel,
@@ -198,13 +210,15 @@ export const MessageHistoryPanel = ({
   setHistoryTo,
 }: MessageHistoryPanelProps) => {
   return (
-    <div className="space-y-4 border-t pt-5">
-      <div>
-        <h3 className="text-xl font-semibold text-foreground">Conversation history</h3>
-        <p className="text-sm text-muted-foreground">
-          Search full customer timelines by agent, customer, category, status, and date.
-        </p>
-      </div>
+    <div className="space-y-4">
+      {showHeader && (
+        <div>
+          <h3 className="text-xl font-semibold text-foreground">Ticket history</h3>
+          <p className="text-sm text-muted-foreground">
+            Search full ticket timelines by agent, customer, category, status, and date.
+          </p>
+        </div>
+      )}
 
       <form onSubmit={onSearchHistory} className="rounded-md border bg-card p-4">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -234,7 +248,7 @@ export const MessageHistoryPanel = ({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All statuses</SelectItem>
-                {DEFAULT_CONVERSATION_STATUSES.map((status) => (
+                {TICKET_HISTORY_STATUSES.map((status) => (
                   <SelectItem key={status} value={status}>
                     {statusLabel(status)}
                   </SelectItem>
@@ -310,7 +324,7 @@ export const MessageHistoryPanel = ({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h4 className="font-semibold text-foreground">{selectedHistoryBucket.label} history</h4>
-              <p className="text-sm text-muted-foreground">{selectedHistoryBucket.total} conversation thread(s)</p>
+              <p className="text-sm text-muted-foreground">{selectedHistoryBucket.total} ticket thread(s)</p>
             </div>
             {historyLoading && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -338,7 +352,7 @@ export const MessageHistoryPanel = ({
 
       {!historyLoading && historySearched && historyChannelBuckets.length > 0 && !historyChannel && (
         <div className="rounded-md border p-4 text-sm text-muted-foreground">
-          Select a channel to load the conversation threads
+          Select a channel to load the ticket threads
         </div>
       )}
 

@@ -2,15 +2,16 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { useSearchParams } from "react-router-dom";
 import {
   AlertCircle,
-  ArrowLeft,
+  ArrowRight,
   Inbox,
   Loader2,
   MessageCircle,
-  RefreshCw,
+  Search,
   Tag,
 } from "lucide-react";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { ChannelIcon } from "@/components/messages/ChannelIcon";
+import { CustomerAvatar } from "@/components/messages/CustomerAvatar";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,37 +24,38 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useConversations } from "@/hooks/useConversations";
 import {
-  asArray,
   categoryLabel,
   channelLabel,
-  ConversationChannelSummary,
   ConversationEntity,
   ConversationMessageEntity,
-  ConversationThreadEntity,
-  ConversationsApi,
   getAssignedAgentId,
   getAssignedAgentUsername,
   getConversationChannel,
   getConversationCustomerLabel,
+  isReturnedToAiConversation,
   getConversationId,
-  getConversationStatus,
+  getMessageText,
+  getProfilePictureUrl,
   isActiveConversation,
   isHandedOverConversation,
   isNewQueueConversation,
   normalizeConversationChannel,
   SUPPORTED_CHANNELS,
 } from "@/lib/conversations";
+import {
+  getTicketAssignmentMessageId,
+  ticketToConversation,
+  TicketsApi,
+  ticketToConversationMessages,
+} from "@/lib/tickets";
 import { MessageTicketCard } from "./messages/MessageTicketCard";
 import { MessageThreadPanel } from "./messages/MessageThreadPanel";
-import { MessageHistoryPanel } from "./messages/MessageHistoryPanel";
 import {
   type CategorySummary,
-  type HistoryChannelBucket,
   type QueueView,
   type SentimentKey,
   type SentimentSummary,
@@ -67,15 +69,106 @@ import {
   getMessageSentimentKey,
   getMessageConversationId,
   messageCategoryKey,
-  messageRowOrder,
   sortMessagesNewestFirst,
   shouldUsePreviewMessage,
-  conversationIdSet,
   SENTIMENT_FILTERS,
-  getChannelBuckets,
 } from "./messages/messages.utils";
 
 const THREAD_POLLING_INTERVAL_MS = 5000;
+
+interface CustomerNameSearchProps {
+  id: string;
+  conversations: ConversationEntity[];
+  value: string;
+  onChange: (value: string) => void;
+}
+
+const CustomerNameSearch = ({ id, conversations, value, onChange }: CustomerNameSearchProps) => {
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const customerNames = Array.from(new Set(
+    conversations.map((conversation) => getConversationCustomerLabel(conversation)).map((name) => name.trim()).filter(Boolean)
+  ));
+  const query = value.trim().toLowerCase();
+  const filteredNames = customerNames.filter((name) => name.toLowerCase().includes(query));
+  const showOptions = open && filteredNames.length > 0;
+
+  useEffect(() => {
+    if (!open) return;
+
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
+  }, [open]);
+
+  const chooseName = (name: string) => {
+    onChange(name);
+    setOpen(false);
+    setActiveIndex(-1);
+  };
+
+  return (
+    <div ref={containerRef} className="relative">
+      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+      <input
+        id={id}
+        type="search"
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={showOptions}
+        aria-controls={`${id}-options`}
+        aria-activedescendant={activeIndex >= 0 ? `${id}-option-${activeIndex}` : undefined}
+        value={value}
+        onFocus={() => setOpen(true)}
+        onChange={(event) => {
+          onChange(event.target.value);
+          setOpen(true);
+          setActiveIndex(-1);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown" && filteredNames.length) {
+            event.preventDefault();
+            setOpen(true);
+            setActiveIndex((index) => Math.min(index + 1, filteredNames.length - 1));
+          } else if (event.key === "ArrowUp" && filteredNames.length) {
+            event.preventDefault();
+            setActiveIndex((index) => Math.max(index - 1, 0));
+          } else if (event.key === "Enter" && showOptions && activeIndex >= 0) {
+            event.preventDefault();
+            chooseName(filteredNames[activeIndex]);
+          } else if (event.key === "Escape") {
+            setOpen(false);
+          }
+        }}
+        placeholder="Search by customer name..."
+        autoComplete="off"
+        className="h-10 w-full rounded-md border border-[#344258] bg-[#0b1220] pl-9 pr-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/30"
+      />
+      {showOptions && (
+        <div id={`${id}-options`} role="listbox" className="absolute inset-x-0 top-full z-30 mt-1 max-h-60 overflow-y-auto rounded-md border border-[#344258] bg-[#111b2b] p-1 shadow-xl">
+          {filteredNames.map((name, index) => (
+            <button
+              key={name}
+              id={`${id}-option-${index}`}
+              type="button"
+              role="option"
+              aria-selected={activeIndex === index}
+              onMouseEnter={() => setActiveIndex(index)}
+              onClick={() => chooseName(name)}
+              className={`w-full truncate rounded px-2.5 py-2 text-left text-xs ${activeIndex === index ? "bg-[#1d2b40] text-white" : "text-slate-300 hover:bg-[#1d2b40] hover:text-white"}`}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const Messages = () => {
   const { user, accessToken } = useAuth();
@@ -91,6 +184,7 @@ const Messages = () => {
   const [previewMessagesLoading, setPreviewMessagesLoading] = useState(false);
   const [previewMessagesError, setPreviewMessagesError] = useState<string | null>(null);
   const [threadMessages, setThreadMessages] = useState<ConversationMessageEntity[]>([]);
+  const [threadConversation, setThreadConversation] = useState<ConversationEntity | null>(null);
   const [threadLoading, setThreadLoading] = useState(false);
   const [threadError, setThreadError] = useState<string | null>(null);
   const [replyText, setReplyText] = useState("");
@@ -100,18 +194,9 @@ const Messages = () => {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [closeDialogConversation, setCloseDialogConversation] = useState<ConversationEntity | null>(null);
   const [closingRemarks, setClosingRemarks] = useState("");
-  const [historyAgent, setHistoryAgent] = useState("");
-  const [historyCustomer, setHistoryCustomer] = useState("");
-  const [historyChannel, setHistoryChannel] = useState<string | null>(null);
-  const [historyStatus, setHistoryStatus] = useState("all");
-  const [historyCategory, setHistoryCategory] = useState("all");
-  const [historyFrom, setHistoryFrom] = useState("");
-  const [historyTo, setHistoryTo] = useState("");
-  const [historySummary, setHistorySummary] = useState<ConversationChannelSummary[]>([]);
-  const [historyThreads, setHistoryThreads] = useState<ConversationThreadEntity[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyError, setHistoryError] = useState<string | null>(null);
-  const [historySearched, setHistorySearched] = useState(false);
+  const [handoverDialogConversation, setHandoverDialogConversation] = useState<ConversationEntity | null>(null);
+  const [handoverNote, setHandoverNote] = useState("");
+  const [ticketSearch, setTicketSearch] = useState("");
 
   const resetPreviewMessages = () => {
     setPreviewMessages([]);
@@ -133,7 +218,8 @@ const Messages = () => {
   const selectedChannel = normalizeConversationChannel(searchParams.get("channel"));
   const selectedSentiment = normalizeSentimentFilter(searchParams.get("sentiment"));
   const selectedCategory = searchParams.get("category") || null;
-  const selectedConversationId = searchParams.get("conversation");
+  const selectedConversationId = searchParams.get("ticket") ?? searchParams.get("conversation");
+  const globalSearch = searchParams.get("search")?.trim() ?? "";
   const currentUsername = user?.username ?? null;
 
   const setParams = useCallback(
@@ -212,13 +298,32 @@ const Messages = () => {
     [handedOverConversations, selectedChannel]
   );
 
-  const selectedConversation = useMemo(
-    () =>
-      selectedConversationId
-        ? conversations.find((conversation) => String(getConversationId(conversation)) === selectedConversationId)
-        : null,
-    [conversations, selectedConversationId]
-  );
+  const selectedConversation = useMemo(() => {
+    if (!selectedConversationId) return null;
+
+    const queuedConversation = conversations.find(
+      (conversation) => String(getConversationId(conversation)) === selectedConversationId
+    );
+    if (queuedConversation) return queuedConversation;
+    if (!threadConversation) return null;
+
+    return String(getConversationId(threadConversation)) === selectedConversationId
+      ? threadConversation
+      : null;
+  }, [conversations, selectedConversationId, threadConversation]);
+
+  const searchResults = useMemo(() => {
+    const query = globalSearch.toLowerCase();
+    if (!query) return [];
+    return conversations.filter((conversation) =>
+      [
+        getConversationCustomerLabel(conversation),
+        conversation.category,
+        conversation.sentiment,
+        conversation.latestMessage,
+      ].some((value) => String(value ?? "").toLowerCase().includes(query))
+    );
+  }, [conversations, globalSearch]);
 
   const channelStats = useMemo(
     () =>
@@ -301,25 +406,6 @@ const Messages = () => {
     });
   }, [selectedChannel, selectedSentiment, selectedSentimentConversations]);
 
-  const historyCategoryOptions = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          conversations
-            .map((conversation) => String(conversation.category || "").trim())
-            .filter(Boolean)
-        )
-      ).sort((first, second) => first.localeCompare(second)),
-    [conversations]
-  );
-
-  const historyChannelBuckets = useMemo<HistoryChannelBucket[]>(() => getChannelBuckets(historySummary), [historySummary]);
-
-  const selectedHistoryBucket = useMemo(
-    () => historyChannelBuckets.find((bucket) => bucket.key === historyChannel) ?? null,
-    [historyChannel, historyChannelBuckets]
-  );
-
   const previewMessageByConversation = useMemo(() => {
     const map = new Map<string, ConversationMessageEntity>();
 
@@ -338,6 +424,21 @@ const Messages = () => {
     return map;
   }, [previewMessages]);
 
+  const filteredNewConversations = useMemo(() => {
+    const query = ticketSearch.trim().toLowerCase();
+    if (!query) return selectedNewConversations;
+
+    return selectedNewConversations.filter((conversation) => {
+      const latestMessage = previewMessageByConversation.get(String(getConversationId(conversation)));
+      return [
+        getConversationCustomerLabel(conversation),
+        conversation.category,
+        conversation.sentiment,
+        latestMessage ? getMessageText(latestMessage) : "",
+      ].some((value) => String(value ?? "").toLowerCase().includes(query));
+    });
+  }, [previewMessageByConversation, selectedNewConversations, ticketSearch]);
+
   const isAssignedToCurrentUser = useCallback(
     (conversation: ConversationEntity) => {
       const assignedUsername = getAssignedAgentUsername(conversation);
@@ -353,11 +454,6 @@ const Messages = () => {
       return false;
     },
     [currentUsername, user?.id]
-  );
-
-  const actionPayload = useMemo(
-    () => ({ assignedAgentUsername: currentUsername }),
-    [currentUsername]
   );
 
   const loadPreviewMessages = useCallback(async () => {
@@ -384,35 +480,9 @@ const Messages = () => {
           return;
         }
 
-        const targetConversationIds = conversationIdSet(selectedNewConversations);
-        if (targetConversationIds.size === 0) {
-          setPreviewMessages([]);
-          setPreviewMessagesError(null);
-          return;
-        }
-
-        const statuses = Array.from(
-          new Set(selectedNewConversations.map((conversation) => getConversationStatus(conversation)))
-        );
-        const responses = await Promise.all(
-          statuses.map((status) =>
-            ConversationsApi.getMessages({
-              source: selectedChannel,
-              status,
-              category: categoryValueFromKey(selectedCategory),
-            })
-          )
-        );
         const list = sortMessagesNewestFirst(
-          responses.flatMap((data) => asArray<ConversationMessageEntity>(data)).filter((message) => {
-            const conversationId = getMessageConversationId(message);
-            return (
-              conversationId !== null &&
-              conversationId !== undefined &&
-              targetConversationIds.has(String(conversationId)) &&
-              messageCategoryKey(message) === selectedCategory &&
-              getMessageSentimentKey(message) === selectedSentiment
-            );
+          selectedNewConversations.flatMap((conversation) => conversation.messages ?? []).filter((message) => {
+            return messageCategoryKey(message) === selectedCategory && getMessageSentimentKey(message) === selectedSentiment;
           })
         );
 
@@ -423,26 +493,8 @@ const Messages = () => {
       }
 
       if (currentView === "handover") {
-        const targetConversationIds = conversationIdSet(selectedHandedOverConversations);
-        if (targetConversationIds.size === 0) {
-          setPreviewMessages([]);
-          setPreviewMessagesError(null);
-          return;
-        }
-
-        const data = await ConversationsApi.getMessages({
-          source: selectedChannel ?? undefined,
-          status: "HANDED_OVER",
-        });
         const list = sortMessagesNewestFirst(
-          asArray<ConversationMessageEntity>(data).filter((message) => {
-            const conversationId = getMessageConversationId(message);
-            return (
-              conversationId !== null &&
-              conversationId !== undefined &&
-              targetConversationIds.has(String(conversationId))
-            );
-          })
+          selectedHandedOverConversations.flatMap((conversation) => conversation.messages ?? [])
         );
 
         setPreviewMessages(list);
@@ -450,35 +502,8 @@ const Messages = () => {
         return;
       }
 
-      const targetConversationIds = conversationIdSet(selectedActiveConversations);
-      if (targetConversationIds.size === 0) {
-        setPreviewMessages([]);
-        setPreviewMessagesError(null);
-        return;
-      }
-
-      const activeStatuses = Array.from(
-        new Set(selectedActiveConversations.map((conversation) => getConversationStatus(conversation)))
-      );
-      const responses = await Promise.all(
-        activeStatuses.map((status) =>
-          ConversationsApi.getMessages({
-            source: selectedChannel ?? undefined,
-            status,
-          })
-        )
-      );
       const list = sortMessagesNewestFirst(
-        responses.flatMap((data) =>
-          asArray<ConversationMessageEntity>(data).filter((message) => {
-            const conversationId = getMessageConversationId(message);
-            return (
-              conversationId !== null &&
-              conversationId !== undefined &&
-              targetConversationIds.has(String(conversationId))
-            );
-          })
-        )
+        selectedActiveConversations.flatMap((conversation) => conversation.messages ?? [])
       );
 
       setPreviewMessages(list);
@@ -508,6 +533,7 @@ const Messages = () => {
     logBackendDebug("loadThreadMessages", { selectedConversationId });
 
     if (!accessToken || !selectedConversationId) {
+      setThreadConversation(null);
       resetThreadMessages();
       return;
     }
@@ -517,12 +543,9 @@ const Messages = () => {
     }
 
     try {
-      const data = await ConversationsApi.getConversationMessages(selectedConversationId);
-      const list = asArray<ConversationMessageEntity>(data).sort((first, second) => {
-        const firstTime = first.createdAt ? new Date(first.createdAt).getTime() : 0;
-        const secondTime = second.createdAt ? new Date(second.createdAt).getTime() : 0;
-        return firstTime - secondTime || messageRowOrder(first) - messageRowOrder(second);
-      });
+      const ticket = await TicketsApi.getTicket(selectedConversationId);
+      setThreadConversation(ticketToConversation(ticket));
+      const list = ticketToConversationMessages(ticket);
 
       setThreadMessages(list);
       setThreadError(null);
@@ -567,76 +590,25 @@ const Messages = () => {
 
   useEffect(() => {
     setReplyText("");
+    setThreadConversation(null);
   }, [selectedConversationId]);
 
-  const handleRefresh = async () => {
-    try {
-      await refresh();
-      await Promise.all([loadPreviewMessages(), loadThreadMessages()]);
-    } catch {
-      // The hooks already expose the error state.
-    }
-  };
-
-  const historyFilterParams = (source?: string | null) => ({
-    agentUsername: historyAgent.trim() || undefined,
-    customerId: historyCustomer.trim() || undefined,
-    source: source || undefined,
-    status: historyStatus !== "all" ? historyStatus : undefined,
-    category: historyCategory !== "all" ? historyCategory : undefined,
-    from: historyFrom || undefined,
-    to: historyTo || undefined,
-  });
-
-  const loadHistoryChannelSummary = async (event?: FormEvent<HTMLFormElement>) => {
-    event?.preventDefault();
-    const params = historyFilterParams();
-    logBackendDebug("loadHistoryChannelSummary", params);
-
-    setHistoryLoading(true);
-    setHistorySearched(true);
-    setHistoryChannel(null);
-    setHistorySummary([]);
-    setHistoryThreads([]);
-    try {
-      const data = await ConversationsApi.getThreadSummary(params);
-
-      logBackendDebug("historySummary loaded", { count: asArray<ConversationChannelSummary>(data).length, data });
-      setHistorySummary(asArray<ConversationChannelSummary>(data));
-      setHistoryError(null);
-    } catch (historyLoadError) {
-      const description =
-        historyLoadError instanceof Error ? historyLoadError.message : "Unable to fetch conversation history.";
-      setHistoryError(description);
-      setHistorySummary([]);
-      setHistoryThreads([]);
-    } finally {
-      setHistoryLoading(false);
-    }
-  };
-
-  const loadHistoryThreadsForChannel = async (source: string) => {
-    const params = historyFilterParams(source);
-    logBackendDebug("loadHistoryThreadsForChannel", { source, params });
-
-    setHistoryChannel(source);
-    setHistoryLoading(true);
-    setHistoryThreads([]);
-    try {
-      const data = await ConversationsApi.getThreads(params);
-
-      logBackendDebug("historyThreads loaded", { count: asArray<ConversationThreadEntity>(data).length, data });
-      setHistoryThreads(asArray<ConversationThreadEntity>(data));
-      setHistoryError(null);
-    } catch (historyLoadError) {
-      const description =
-        historyLoadError instanceof Error ? historyLoadError.message : "Unable to fetch conversation history.";
-      setHistoryError(description);
-      setHistoryThreads([]);
-    } finally {
-      setHistoryLoading(false);
-    }
-  };
+  useEffect(() => {
+    if (selectedConversationId) return;
+    const firstConversation = currentView === "active"
+      ? selectedActiveConversations[0]
+      : currentView === "handover"
+      ? selectedHandedOverConversations[0]
+      : null;
+    const firstId = firstConversation ? getConversationId(firstConversation) : null;
+    if (firstId) setParams({ ticket: String(firstId), conversation: null });
+  }, [
+    currentView,
+    selectedActiveConversations,
+    selectedConversationId,
+    selectedHandedOverConversations,
+    setParams,
+  ]);
 
   const sendConversationReply = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -667,9 +639,10 @@ const Messages = () => {
     replyInFlightRef.current = true;
     setReplySending(true);
     try {
-      await ConversationsApi.replyConversation(conversationId, {
+      await TicketsApi.replyTicket(conversationId, {
         message: trimmedMessage,
-        assignedAgentUsername: currentUsername,
+        username: currentUsername,
+        firstName: user?.firstName ?? null,
       });
 
       setReplyText("");
@@ -688,13 +661,32 @@ const Messages = () => {
     const conversationId = getConversationId(conversation);
     if (!conversationId) return;
 
+    if (!currentUsername) {
+      toast({
+        title: "No support user",
+        description: "Sign in with a username before assigning a ticket.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const actionKey = `pick-${conversationId}`;
     setActionLoading(actionKey);
     try {
-      await ConversationsApi.assignConversation(conversationId, actionPayload);
+      const payload = {
+        username: currentUsername,
+        messageId: getTicketAssignmentMessageId(conversation),
+      };
+
+      if (currentView === "handover" || conversation.ticketQueue === "handover") {
+        await TicketsApi.assignHandedOverTicketToBankSupport(conversationId, payload);
+      } else {
+        await TicketsApi.assignNewTicketToBankSupport(conversationId, payload);
+      }
+
       toast({ title: "Ticket assigned" });
       await refresh();
-      setSearchParams({ view: "active", conversation: String(conversationId) });
+      setSearchParams({ view: "active", ticket: String(conversationId) });
     } catch (pickError) {
       const description = pickError instanceof Error ? pickError.message : "Unable to assign ticket.";
       toast({ title: "Ticket not assigned", description, variant: "destructive" });
@@ -710,9 +702,11 @@ const Messages = () => {
     const actionKey = `pending-${conversationId}`;
     setActionLoading(actionKey);
     try {
-      await ConversationsApi.markPendingCustomer(conversationId, actionPayload);
-      toast({ title: "Ticket marked pending customer" });
-      await refresh();
+      toast({
+        title: "Pending endpoint not ready",
+        description: "The new ticket controller does not expose pending-customer yet.",
+        variant: "destructive",
+      });
     } catch (pendingError) {
       const description =
         pendingError instanceof Error ? pendingError.message : "Unable to mark ticket pending customer.";
@@ -750,11 +744,14 @@ const Messages = () => {
     const actionKey = `close-${conversationId}`;
     setActionLoading(actionKey);
     try {
-      await ConversationsApi.closeConversation(conversationId, { closingRemarks: remarks });
+      await TicketsApi.closeTicket(conversationId, {
+        closingRemarks: remarks,
+        closedBy: currentUsername,
+      });
       toast({ title: "Ticket closed" });
       resetCloseDialog();
       await refresh();
-      setParams({ conversation: null });
+      setSearchParams({ view: "active" });
     } catch (closeError) {
       const description = closeError instanceof Error ? closeError.message : "Unable to close ticket.";
       toast({ title: "Ticket not closed", description, variant: "destructive" });
@@ -763,76 +760,190 @@ const Messages = () => {
     }
   };
 
-  const handoverConversation = async (conversation: ConversationEntity) => {
+  const openHandoverDialog = (conversation: ConversationEntity) => {
+    if (!currentUsername) {
+      toast({
+        title: "No support user",
+        description: "Sign in with a username before handing over a ticket.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setHandoverDialogConversation(conversation);
+    setHandoverNote("");
+  };
+
+  const resetHandoverDialog = () => {
+    setHandoverDialogConversation(null);
+    setHandoverNote("");
+  };
+
+  const confirmHandoverConversation = async () => {
+    const conversation = handoverDialogConversation;
+    if (!conversation) return;
+
     const conversationId = getConversationId(conversation);
     if (!conversationId) return;
 
     const actionKey = `handover-${conversationId}`;
     setActionLoading(actionKey);
     try {
-      await ConversationsApi.handoverConversation(conversationId);
-      toast({ title: "Ticket handed over" });
+      const payload = {
+        messageId: getTicketAssignmentMessageId(conversation),
+        handoverBy: currentUsername,
+        handoverNote: handoverNote.trim() || null,
+      };
+      await TicketsApi.returnTicketToAi(conversationId, payload);
+      toast({ title: "Conversation returned to AI agent" });
       await refresh();
+      resetHandoverDialog();
       setSearchParams({ view: "handover" });
     } catch (handoverError) {
-      const description = handoverError instanceof Error ? handoverError.message : "Unable to hand over ticket.";
-      toast({ title: "Ticket not handed over", description, variant: "destructive" });
+      const description = handoverError instanceof Error
+        ? handoverError.message
+        : "Unable to return conversation to AI agent.";
+      toast({
+        title: "Conversation not returned to AI agent",
+        description,
+        variant: "destructive",
+      });
     } finally {
       setActionLoading(null);
     }
   };
 
-  const goBack = () => {
-    if (selectedConversationId) {
-      setParams({ conversation: null });
-      return;
-    }
+  const renderTicketWorkspace = (
+    items: ConversationEntity[],
+    mode: "active" | "handover"
+  ) => {
+    const query = ticketSearch.trim().toLowerCase();
+    const visibleItems = query
+      ? items.filter((conversation) => {
+          const latestMessage = previewMessageByConversation.get(String(getConversationId(conversation)));
+          return [
+            getConversationCustomerLabel(conversation),
+            conversation.category,
+            latestMessage ? getMessageText(latestMessage) : conversation.latestMessage,
+                  ].some((value) => String(value ?? "").toLowerCase().includes(query));
+                })
+              : items;
 
-    if (selectedCategory) {
-      setParams({ category: null });
-      return;
-    }
+            const orderedVisibleItems = mode === "handover"
+              ? [...visibleItems].sort((first, second) => {
+                  const firstChannel = getConversationChannel(first) ?? "other";
+                  const secondChannel = getConversationChannel(second) ?? "other";
+                  return firstChannel.localeCompare(secondChannel);
+                })
+              : visibleItems;
 
-    if (selectedSentiment) {
-      setParams({ sentiment: null, category: null });
-      return;
-    }
+            return (
+              <div className="grid h-full min-h-0 grid-rows-[minmax(0,0.4fr)_minmax(0,0.6fr)] overflow-hidden rounded border border-[#26344a] bg-[#0b1220] sm:grid-rows-1 sm:grid-cols-[minmax(175px,0.6fr)_minmax(0,1.4fr)] xl:grid-cols-[minmax(310px,0.72fr)_minmax(540px,1.4fr)]">
+                <aside className="flex min-h-0 flex-col border-b border-[#26344a] bg-[#101827] sm:border-b-0 sm:border-r">
+                  <div className="border-b border-[#26344a] bg-[#101827] p-3">
+                    <CustomerNameSearch
+                      id="queue-customer-search"
+                      conversations={items}
+                      value={ticketSearch}
+                      onChange={setTicketSearch}
+                    />
+                  </div>
+                  <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                    {orderedVisibleItems.length === 0 ? (
+                      <div className="flex items-center gap-2 p-5 text-sm text-slate-400">
+                        <Inbox className="h-4 w-4" /> No matching tickets
+                      </div>
+                    ) : (
+                      orderedVisibleItems.map((conversation, index) => {
+                        const conversationId = String(getConversationId(conversation));
+                        const latestMessage = previewMessageByConversation.get(conversationId);
+                        const selected = selectedConversationId === conversationId;
+                        const conversationChannel = getConversationChannel(conversation);
+                        const previousChannel = index > 0 ? getConversationChannel(orderedVisibleItems[index - 1]) : null;
+                        const showChannelHeading = mode === "handover" && conversationChannel !== previousChannel;
+                        const queueLabel = mode === "active"
+                          ? "Active"
+                          : isReturnedToAiConversation(conversation)
+                          ? "Returned to AI"
+                          : "To support agent";
 
-    if (selectedChannel) {
-      setParams({ channel: null, sentiment: null, category: null });
-      return;
-    }
-
-    setSearchParams({ view: currentView });
+                        return (
+                          <div key={conversationId}>
+                            {showChannelHeading && (
+                              <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-[#26344a] bg-[#182438] px-4 py-2 text-[11px] font-semibold uppercase text-slate-300">
+                                {conversationChannel && <ChannelIcon channel={conversationChannel} className="h-5 w-5" />}
+                                {conversationChannel ? channelLabel(conversationChannel) : "Other"}
+                              </div>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setParams({ view: mode, ticket: conversationId, conversation: null })}
+                              className={`w-full border-b border-[#26344a] px-4 py-4 text-left text-slate-100 transition ${selected
+                                ? "border-l-[3px] border-l-sky-500 bg-[#182438]"
+                                : "border-l-[3px] border-l-transparent hover:bg-[#182438]"
+                              }`}
+                            >
+                              <span className="flex items-start gap-3">
+                                <CustomerAvatar
+                                  profilePictureUrl={getProfilePictureUrl(latestMessage, conversation)}
+                                  label={getConversationCustomerLabel(conversation)}
+                                  fallbackClassName="bg-[#1d2b40] text-slate-200"
+                                />
+                                <span className="min-w-0 flex-1">
+                                  <span className="flex items-center justify-between gap-2">
+                                    <span className="truncate text-sm font-semibold text-slate-100">{getConversationCustomerLabel(conversation)}</span>
+                                    <span className="shrink-0 text-[11px] text-slate-400">{formatDateTime(conversation.lastMessageAt)}</span>
+                                  </span>
+                                  <span className="mt-1 block truncate text-xs text-slate-300">
+                                    {(latestMessage ? getMessageText(latestMessage) : conversation.latestMessage) || "Open ticket to view messages"}
+                                  </span>
+                                  <span className="mt-2 flex items-center gap-2 text-[10px]">
+                                    <span className="rounded bg-[#26344a] px-2 py-0.5 font-medium text-slate-200">{queueLabel}</span>
+                                    {conversation.category && <span className="truncate text-slate-400">{categoryLabel(conversation.category)}</span>}
+                                  </span>
+                                </span>
+                              </span>
+                            </button>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </aside>
+                <div className="min-h-0 min-w-0 bg-[#0b1220]">
+                  {selectedConversation ? (
+                    <MessageThreadPanel
+                      selectedConversation={selectedConversation}
+                      threadMessages={threadMessages}
+                      threadLoading={threadLoading}
+                      threadError={threadError}
+                      replyText={replyText}
+                      replySending={replySending}
+                      currentUsername={currentUsername}
+                      canPick={mode === "handover" && !isAssignedToCurrentUser(selectedConversation)}
+                      pickLoading={actionLoading === `pick-${getConversationId(selectedConversation)}`}
+                      canHandOver={mode === "active" && isAssignedToCurrentUser(selectedConversation)}
+                      handoverLoading={actionLoading === `handover-${getConversationId(selectedConversation)}`}
+                      canClose={mode === "active" && isAssignedToCurrentUser(selectedConversation)}
+                      closeLoading={actionLoading === `close-${getConversationId(selectedConversation)}`}
+                      onReplyTextChange={setReplyText}
+                      onSendReply={sendConversationReply}
+                      onPick={() => pickConversation(selectedConversation)}
+                      onOpenHandover={() => openHandoverDialog(selectedConversation)}
+                      onOpenClose={() => openCloseDialog(selectedConversation)}
+                    />
+                  ) : (
+                    <div className="flex min-h-[600px] items-center justify-center gap-3 text-sm text-muted-foreground">
+                      <MessageCircle className="h-5 w-5" /> Select a ticket to open its thread
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
   };
 
-  const showBack = Boolean(selectedChannel || selectedSentiment || selectedCategory || selectedConversationId);
-
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h2 className="text-3xl font-bold text-foreground">Messages</h2>
-          <p className="text-muted-foreground">WhatsApp, Facebook, Instagram, and X service tickets</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {showBack && (
-            <Button type="button" variant="outline" onClick={goBack}>
-              <ArrowLeft className="h-4 w-4" />
-              Back
-            </Button>
-          )}
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleRefresh}
-            disabled={loading || previewMessagesLoading || threadLoading}
-          >
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            Refresh
-          </Button>
-        </div>
-      </div>
+    <div className={selectedConversationId || (currentView === "new" && selectedChannel) ? "-mx-4 -my-4 h-[calc(100dvh-3.25rem)] min-h-0 overflow-hidden sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8" : "space-y-4"}>
 
       {error && (
         <Alert variant="destructive">
@@ -841,35 +952,87 @@ const Messages = () => {
         </Alert>
       )}
 
-      <Tabs
-        value={currentView}
-        onValueChange={(value) => {
-          const view = value === "active" || value === "handover" ? value : "new";
-          setSearchParams({ view });
-        }}
-      >
-        <TabsList>
-          <TabsTrigger value="new">New messages</TabsTrigger>
-          <TabsTrigger value="handover">Handed over</TabsTrigger>
-          <TabsTrigger value="active">Active tickets</TabsTrigger>
-        </TabsList>
-      </Tabs>
-
-      {selectedConversation && (
-        <MessageThreadPanel
-          selectedConversation={selectedConversation}
-          threadMessages={threadMessages}
-          threadLoading={threadLoading}
-          threadError={threadError}
-          replyText={replyText}
-          replySending={replySending}
-          currentUsername={currentUsername}
-          onReplyTextChange={setReplyText}
-          onSendReply={sendConversationReply}
-        />
+      {globalSearch && (
+        <section className="space-y-4">
+          <div>
+            <h3 className="text-xl font-semibold text-foreground">Search results</h3>
+            <p className="text-sm text-muted-foreground">{searchResults.length} tickets matching “{globalSearch}”</p>
+          </div>
+          {searchResults.length === 0 ? (
+            <div className="flex items-center gap-3 rounded-md border bg-white p-6 text-muted-foreground">
+              <Inbox className="h-5 w-5" /> No matching tickets
+            </div>
+          ) : threadLoading && selectedConversationId ? (
+            <div className="flex min-h-[600px] items-center justify-center gap-2 text-sm text-slate-400">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading conversation
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {searchResults.map((conversation) => (
+                <MessageTicketCard
+                  key={String(getConversationId(conversation))}
+                  conversation={conversation}
+                  mode={isActiveConversation(conversation) ? "active" : isHandedOverConversation(conversation) ? "handover" : "new"}
+                  latestMessage={conversation.messages?.at(-1)}
+                  actionLoading={actionLoading}
+                  selectedConversationId={selectedConversationId}
+                  currentUsername={currentUsername}
+                  previewMessagesLoading={false}
+                  onOpenThread={(conversationId) => setParams({ ticket: conversationId })}
+                  onPickConversation={pickConversation}
+                  onMarkPendingCustomer={markPendingCustomer}
+                  onOpenCloseDialog={openCloseDialog}
+                  onHandoverConversation={openHandoverDialog}
+                  isAssignedToCurrentUser={isAssignedToCurrentUser}
+                />
+              ))}
+            </div>
+          )}
+          {selectedConversation && (
+            <div className="overflow-hidden rounded-md border bg-white">
+              <MessageThreadPanel
+                selectedConversation={selectedConversation}
+                threadMessages={threadMessages}
+                threadLoading={threadLoading}
+                threadError={threadError}
+                replyText={replyText}
+                replySending={replySending}
+                currentUsername={currentUsername}
+                onReplyTextChange={setReplyText}
+                onSendReply={sendConversationReply}
+              />
+            </div>
+          )}
+        </section>
       )}
 
-      {currentView === "new" && !selectedChannel && (
+      {currentView === "new" && selectedConversationId && !selectedChannel && !globalSearch && (
+        <section className="h-full min-h-0 overflow-hidden rounded-md border border-[#26344a] bg-[#0b1220]">
+          {selectedConversation ? (
+            <MessageThreadPanel
+              selectedConversation={selectedConversation}
+              threadMessages={threadMessages}
+              threadLoading={threadLoading}
+              threadError={threadError}
+              replyText={replyText}
+              replySending={replySending}
+              currentUsername={currentUsername}
+              onReplyTextChange={setReplyText}
+              onSendReply={sendConversationReply}
+            />
+          ) : threadLoading ? (
+            <div className="flex h-full items-center justify-center gap-2 text-sm text-slate-400">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading conversation
+            </div>
+          ) : (
+            <div className="flex h-full items-center justify-center p-4 text-sm text-rose-200">
+              {threadError || "Unable to load this conversation."}
+            </div>
+          )}
+        </section>
+      )}
+
+      {currentView === "new" && !selectedChannel && !globalSearch && !selectedConversationId && (
         <section className="space-y-3">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {channelStats.map((channel) => (
@@ -877,9 +1040,9 @@ const Messages = () => {
                 key={channel.id}
                 role="button"
                 tabIndex={0}
-                className="cursor-pointer transition-shadow hover:shadow-md"
+                className="group cursor-pointer transition hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-md"
                 onClick={() =>
-                  setParams({ view: "new", channel: channel.id, sentiment: null, category: null, conversation: null })
+                  setParams({ view: "new", channel: channel.id, sentiment: null, category: null, ticket: null, conversation: null })
                 }
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
@@ -889,20 +1052,22 @@ const Messages = () => {
                       channel: channel.id,
                       sentiment: null,
                       category: null,
+                      ticket: null,
                       conversation: null,
                     });
                   }
                 }}
               >
-                <CardContent className="flex items-center gap-4 p-5">
-                  <ChannelIcon channel={channel.id} />
-                  <div className="min-w-0 flex-1">
-                    <p className="font-semibold text-foreground">{channel.label}</p>
-                    <p className="text-sm text-muted-foreground">{channel.activeCount} active tickets</p>
+                <CardContent className="p-5">
+                  <div className="flex items-center gap-3">
+                    <ChannelIcon channel={channel.id} className="h-12 w-12" />
+                    <p className="min-w-0 flex-1 text-lg font-semibold text-foreground">{channel.label}</p>
+                    <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-muted transition group-hover:bg-primary/10 group-hover:text-primary"><ArrowRight className="h-4 w-4" /></span>
                   </div>
-                  <div className="text-right">
-                    <p className="text-3xl font-bold text-foreground">{channel.newCount}</p>
-                    <p className="text-xs text-muted-foreground">new</p>
+                  <div className="mt-5 flex items-end gap-5">
+                    <div><p className="text-2xl font-bold">{channel.activeCount}</p><p className="text-xs text-muted-foreground">active tickets</p></div>
+                    <span className="mb-1 h-9 w-px bg-border" />
+                    <div><p className="text-2xl font-bold">{channel.newCount}</p><p className="text-xs text-muted-foreground">new tickets</p></div>
                   </div>
                 </CardContent>
               </Card>
@@ -911,127 +1076,8 @@ const Messages = () => {
         </section>
       )}
 
-      {currentView === "new" && selectedChannel && !selectedSentiment && (
-        <section className="space-y-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <ChannelIcon channel={selectedChannel} />
-            <div>
-              <h3 className="text-xl font-semibold text-foreground">{channelLabel(selectedChannel)}</h3>
-              <p className="text-sm text-muted-foreground">{selectedChannelNewConversations.length} new tickets</p>
-            </div>
-          </div>
-
-          {selectedChannelNewConversations.length === 0 ? (
-            <Card>
-              <CardContent className="flex items-center gap-3 p-6 text-muted-foreground">
-                <Inbox className="h-5 w-5" />
-                No new tickets
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              {sentimentSummaries.map((sentiment) => (
-                <Card
-                  key={sentiment.key}
-                  role="button"
-                  tabIndex={0}
-                  className="cursor-pointer transition-shadow hover:shadow-md"
-                  onClick={() => setParams({ sentiment: sentiment.key, category: null, conversation: null })}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      setParams({ sentiment: sentiment.key, category: null, conversation: null });
-                    }
-                  }}
-                >
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="truncate text-sm font-medium">{sentiment.label}</CardTitle>
-                    <MessageCircle className="h-5 w-5 text-[#b71c1c]" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-3xl font-bold text-foreground">{sentiment.total}</div>
-                    <p className="mt-2 text-xs text-muted-foreground">{sentiment.description}</p>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </section>
-      )}
-
-      {currentView === "new" && selectedChannel && selectedSentiment && !selectedCategory && (
-        <section className="space-y-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <ChannelIcon channel={selectedChannel} />
-            <div>
-              <h3 className="text-xl font-semibold text-foreground">{sentimentLabel(selectedSentiment)}</h3>
-              <p className="text-sm text-muted-foreground">
-                {channelLabel(selectedChannel)} · {selectedSentimentConversations.length} new tickets
-              </p>
-            </div>
-          </div>
-
-          {categorySummaries.length === 0 ? (
-            <Card>
-              <CardContent className="flex items-center gap-3 p-6 text-muted-foreground">
-                <Inbox className="h-5 w-5" />
-                No new tickets
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              {categorySummaries.map((category) => (
-                <Card
-                  key={category.key}
-                  role="button"
-                  tabIndex={0}
-                  className="cursor-pointer transition-shadow hover:shadow-md"
-                  onClick={() => setParams({ category: category.key, conversation: null })}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      setParams({ category: category.key, conversation: null });
-                    }
-                  }}
-                >
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="truncate text-sm font-medium">{category.label}</CardTitle>
-                    <Tag className="h-5 w-5 text-[#b71c1c]" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-3xl font-bold text-foreground">{category.total}</div>
-                    <p className="mt-2 text-xs text-muted-foreground">{formatDateTime(category.latestAt)}</p>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </section>
-      )}
-
-      {currentView === "new" && selectedChannel && selectedSentiment && selectedCategory && (
-        <section className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <ChannelIcon channel={selectedChannel} />
-              <div>
-                <h3 className="text-xl font-semibold text-foreground">
-                  {categoryLabel(categoryValueFromKey(selectedCategory))}
-                </h3>
-                <p className="text-sm text-muted-foreground">
-                  {channelLabel(selectedChannel)} · {sentimentLabel(selectedSentiment)} ·{" "}
-                  {selectedNewConversations.length} new tickets
-                </p>
-              </div>
-            </div>
-            {previewMessagesLoading && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading messages
-              </div>
-            )}
-          </div>
-
+      {currentView === "new" && selectedChannel && !globalSearch && (
+        <section className="flex h-full min-h-0 flex-col gap-3">
           {previewMessagesError && (
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
@@ -1039,7 +1085,7 @@ const Messages = () => {
             </Alert>
           )}
 
-          {selectedNewConversations.length === 0 && !previewMessagesLoading ? (
+          {selectedNewConversations.length === 0 && !selectedConversation && !threadLoading && !previewMessagesLoading ? (
             <Card>
               <CardContent className="flex items-center gap-3 p-6 text-muted-foreground">
                 <Inbox className="h-5 w-5" />
@@ -1047,64 +1093,92 @@ const Messages = () => {
               </CardContent>
             </Card>
           ) : (
-            <div className="space-y-3">
-              {selectedNewConversations.map((conversation) => (
-                <MessageTicketCard
-                  key={String(getConversationId(conversation) ?? `${conversation.senderId}-${conversation.lastMessageAt}`)}
-                  conversation={conversation}
-                  mode="new"
-                  latestMessage={previewMessageByConversation.get(String(getConversationId(conversation)))}
-                  actionLoading={actionLoading}
-                  selectedConversationId={selectedConversationId}
-                  currentUsername={currentUsername}
-                  previewMessagesLoading={previewMessagesLoading}
-                  onOpenThread={(conversationId) => setParams({ view: "new", conversation: conversationId })}
-                  onPickConversation={pickConversation}
-                  onMarkPendingCustomer={markPendingCustomer}
-                  onOpenCloseDialog={openCloseDialog}
-                  onHandoverConversation={handoverConversation}
-                  isAssignedToCurrentUser={isAssignedToCurrentUser}
-                />
-              ))}
+            <div className={`grid min-h-0 flex-1 overflow-hidden rounded-md border border-[#26344a] bg-[#0b1220] ${selectedConversationId ? "grid-rows-[minmax(0,0.4fr)_minmax(0,0.6fr)] sm:grid-rows-1 sm:grid-cols-[minmax(175px,0.6fr)_minmax(0,1.4fr)] xl:grid-cols-[minmax(310px,0.72fr)_minmax(520px,1.35fr)]" : "grid-cols-1 grid-rows-1"}`}>
+              <aside className="flex min-h-0 flex-col border-b border-[#26344a] bg-[#101827] sm:border-b-0 sm:border-r">
+                <div className="border-b border-[#26344a] bg-[#101827] p-3">
+                  <CustomerNameSearch
+                    id="new-customer-search"
+                    conversations={selectedNewConversations}
+                    value={ticketSearch}
+                    onChange={setTicketSearch}
+                  />
+                </div>
+                <div className="flex shrink-0 items-center gap-2 border-b border-[#26344a] bg-[#182438] px-4 py-2 text-[11px] font-semibold uppercase text-slate-300">
+                  <ChannelIcon channel={selectedChannel} className="h-5 w-5" />
+                  <span>{channelLabel(selectedChannel)}</span>
+                  <span className="ml-auto font-normal normal-case text-slate-400">{selectedNewConversations.length} new</span>
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                  {filteredNewConversations.length === 0 ? (
+                    <div className="flex items-center gap-2 p-5 text-sm text-slate-400">
+                      <Inbox className="h-4 w-4" /> No matching tickets
+                    </div>
+                  ) : (
+                    filteredNewConversations.map((conversation) => {
+                      const conversationId = String(getConversationId(conversation));
+                      const latestMessage = previewMessageByConversation.get(conversationId);
+                      const selected = selectedConversationId === conversationId;
+                      return (
+                        <button
+                          key={conversationId}
+                          type="button"
+                          onClick={() => setParams({ view: "new", ticket: conversationId, conversation: null })}
+                          className={`w-full border-b border-[#26344a] px-4 py-4 text-left text-slate-100 transition hover:bg-[#182438] ${selected ? "border-l-[3px] border-l-sky-500 bg-[#182438]" : "border-l-[3px] border-l-transparent"}`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#1d2b40] text-sm font-semibold text-slate-200">
+                              {getConversationCustomerLabel(conversation).slice(0, 1).toUpperCase()}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="flex items-center justify-between gap-2">
+                                <span className="truncate text-sm font-semibold text-slate-100">{getConversationCustomerLabel(conversation)}</span>
+                                <span className="shrink-0 text-[11px] text-slate-400">{formatDateTime(conversation.lastMessageAt)}</span>
+                              </span>
+                              <span className="mt-1 block truncate text-xs text-slate-300">
+                                {(latestMessage ? getMessageText(latestMessage) : "") || "Open ticket to view messages"}
+                              </span>
+                              <span className="mt-2 inline-flex rounded bg-amber-950 px-2 py-0.5 text-[10px] font-medium text-amber-300">New</span>
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </aside>
+              {selectedConversationId && <div className="min-h-0 min-w-0 bg-[#0b1220]">
+                {selectedConversation ? (
+                  <MessageThreadPanel
+                    selectedConversation={selectedConversation}
+                    threadMessages={threadMessages}
+                    threadLoading={threadLoading}
+                    threadError={threadError}
+                    replyText={replyText}
+                    replySending={replySending}
+                    currentUsername={currentUsername}
+                    canPick={!isAssignedToCurrentUser(selectedConversation)}
+                    pickLoading={actionLoading === `pick-${getConversationId(selectedConversation)}`}
+                    onReplyTextChange={setReplyText}
+                    onSendReply={sendConversationReply}
+                    onPick={() => pickConversation(selectedConversation)}
+                  />
+                ) : threadLoading && selectedConversationId ? (
+                  <div className="flex h-full min-h-0 items-center justify-center gap-2 text-sm text-slate-400">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Loading conversation
+                  </div>
+                ) : (
+                  <div className="flex h-full min-h-0 items-center justify-center gap-3 text-sm text-slate-400">
+                    <MessageCircle className="h-5 w-5" /> Select a ticket to open its thread
+                  </div>
+                )}
+              </div>}
             </div>
           )}
         </section>
       )}
 
       {currentView === "handover" && (
-        <section className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 className="text-xl font-semibold text-foreground">Handed over tickets</h3>
-              <p className="text-sm text-muted-foreground">
-                {selectedHandedOverConversations.length} waiting for reassignment
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant={!selectedChannel ? "default" : "outline"}
-                size="sm"
-                onClick={() => setParams({ channel: null, sentiment: null, category: null, conversation: null })}
-              >
-                All
-              </Button>
-              {SUPPORTED_CHANNELS.map((channel) => (
-                <Button
-                  key={channel.id}
-                  type="button"
-                  variant={selectedChannel === channel.id ? "default" : "outline"}
-                  size="sm"
-                  onClick={() =>
-                    setParams({ channel: channel.id, sentiment: null, category: null, conversation: null })
-                  }
-                >
-                  {channel.label}
-                </Button>
-              ))}
-            </div>
-          </div>
-
+        <section className={selectedConversationId ? "h-full min-h-0" : "space-y-2"}>
           {previewMessagesError && (
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
@@ -1112,7 +1186,7 @@ const Messages = () => {
             </Alert>
           )}
 
-          {selectedHandedOverConversations.length === 0 ? (
+          {selectedHandedOverConversations.length === 0 && !selectedConversation && !threadLoading ? (
             <Card>
               <CardContent className="flex items-center gap-3 p-6 text-muted-foreground">
                 <Inbox className="h-5 w-5" />
@@ -1120,62 +1194,13 @@ const Messages = () => {
               </CardContent>
             </Card>
           ) : (
-            <div className="space-y-3">
-              {selectedHandedOverConversations.map((conversation) => (
-                <MessageTicketCard
-                  key={String(getConversationId(conversation) ?? `${conversation.senderId}-${conversation.lastMessageAt}`)}
-                  conversation={conversation}
-                  mode="handover"
-                  latestMessage={previewMessageByConversation.get(String(getConversationId(conversation)))}
-                  actionLoading={actionLoading}
-                  selectedConversationId={selectedConversationId}
-                  currentUsername={currentUsername}
-                  previewMessagesLoading={previewMessagesLoading}
-                  onOpenThread={(conversationId) => setParams({ view: "handover", conversation: conversationId })}
-                  onPickConversation={pickConversation}
-                  onMarkPendingCustomer={markPendingCustomer}
-                  onOpenCloseDialog={openCloseDialog}
-                  onHandoverConversation={handoverConversation}
-                  isAssignedToCurrentUser={isAssignedToCurrentUser}
-                />
-              ))}
-            </div>
+            renderTicketWorkspace(selectedHandedOverConversations, "handover")
           )}
         </section>
       )}
 
       {currentView === "active" && (
-        <section className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 className="text-xl font-semibold text-foreground">Active tickets</h3>
-              <p className="text-sm text-muted-foreground">{selectedActiveConversations.length} in progress</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant={!selectedChannel ? "default" : "outline"}
-                size="sm"
-                onClick={() => setParams({ channel: null, sentiment: null, category: null, conversation: null })}
-              >
-                All
-              </Button>
-              {SUPPORTED_CHANNELS.map((channel) => (
-                <Button
-                  key={channel.id}
-                  type="button"
-                  variant={selectedChannel === channel.id ? "default" : "outline"}
-                  size="sm"
-                  onClick={() =>
-                    setParams({ channel: channel.id, sentiment: null, category: null, conversation: null })
-                  }
-                >
-                  {channel.label}
-                </Button>
-              ))}
-            </div>
-          </div>
-
+        <section className={selectedConversationId ? "h-full min-h-0" : "space-y-2"}>
           {previewMessagesError && (
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
@@ -1183,7 +1208,7 @@ const Messages = () => {
             </Alert>
           )}
 
-          {selectedActiveConversations.length === 0 ? (
+          {selectedActiveConversations.length === 0 && !selectedConversation && !threadLoading ? (
             <Card>
               <CardContent className="flex items-center gap-3 p-6 text-muted-foreground">
                 <Inbox className="h-5 w-5" />
@@ -1191,62 +1216,9 @@ const Messages = () => {
               </CardContent>
             </Card>
           ) : (
-            <div className="space-y-3">
-              {selectedActiveConversations.map((conversation) => (
-                <MessageTicketCard
-                  key={String(getConversationId(conversation) ?? `${conversation.senderId}-${conversation.lastMessageAt}`)}
-                  conversation={conversation}
-                  mode="active"
-                  latestMessage={previewMessageByConversation.get(String(getConversationId(conversation)))}
-                  actionLoading={actionLoading}
-                  selectedConversationId={selectedConversationId}
-                  currentUsername={currentUsername}
-                  previewMessagesLoading={previewMessagesLoading}
-                  onOpenThread={(conversationId) => setParams({ view: "active", conversation: conversationId })}
-                  onPickConversation={pickConversation}
-                  onMarkPendingCustomer={markPendingCustomer}
-                  onOpenCloseDialog={openCloseDialog}
-                  onHandoverConversation={handoverConversation}
-                  isAssignedToCurrentUser={isAssignedToCurrentUser}
-                />
-              ))}
-            </div>
+            renderTicketWorkspace(selectedActiveConversations, "active")
           )}
 
-          <div className="space-y-4 border-t pt-5">
-            <div>
-              <h3 className="text-xl font-semibold text-foreground">Conversation history</h3>
-              <p className="text-sm text-muted-foreground">
-                Search full customer timelines by agent, customer, category, status, and date.
-              </p>
-            </div>
-
-            <MessageHistoryPanel
-              historyAgent={historyAgent}
-              historyCustomer={historyCustomer}
-              historyChannel={historyChannel}
-              historyStatus={historyStatus}
-              historyCategory={historyCategory}
-              historyFrom={historyFrom}
-              historyTo={historyTo}
-              historySummary={historySummary}
-              historyThreads={historyThreads}
-              historyLoading={historyLoading}
-              historyError={historyError}
-              historySearched={historySearched}
-              historyCategoryOptions={historyCategoryOptions}
-              historyChannelBuckets={historyChannelBuckets}
-              selectedHistoryBucket={selectedHistoryBucket}
-              onSearchHistory={loadHistoryChannelSummary}
-              onSelectHistoryChannel={loadHistoryThreadsForChannel}
-              setHistoryAgent={setHistoryAgent}
-              setHistoryCustomer={setHistoryCustomer}
-              setHistoryStatus={setHistoryStatus}
-              setHistoryCategory={setHistoryCategory}
-              setHistoryFrom={setHistoryFrom}
-              setHistoryTo={setHistoryTo}
-            />
-          </div>
         </section>
       )}
 
@@ -1285,6 +1257,50 @@ const Messages = () => {
             >
               {actionLoading?.startsWith("close-") && <Loader2 className="h-4 w-4 animate-spin" />}
               Close ticket
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(handoverDialogConversation)}
+        onOpenChange={(open) => {
+          if (!open) resetHandoverDialog();
+        }}
+      >
+        <DialogContent className="sm:max-w-[560px]">
+          <DialogHeader>
+            <DialogTitle>Return conversation to AI agent</DialogTitle>
+            <DialogDescription>
+              {getConversationCustomerLabel(handoverDialogConversation)}
+              {handoverDialogConversation
+                ? ` will continue in the same ${getConversationChannel(handoverDialogConversation) ?? "channel"} conversation.`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="handover-note">Handover note</Label>
+            <Textarea
+              id="handover-note"
+              value={handoverNote}
+              onChange={(event) => setHandoverNote(event.target.value)}
+              placeholder={
+                "Add context for the AI agent to continue the chat"
+              }
+              rows={4}
+            />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={resetHandoverDialog}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={confirmHandoverConversation}
+              disabled={actionLoading?.startsWith("handover-")}
+            >
+              {actionLoading?.startsWith("handover-") && <Loader2 className="h-4 w-4 animate-spin" />}
+              Return to AI agent
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  asArray,
   buildConversationSummary,
   ConversationEntity,
-  ConversationsApi,
-  dedupeMirroredConversations,
 } from "@/lib/conversations";
+import { TicketsApi, ticketQueuesToConversations } from "@/lib/tickets";
 
 interface UseConversationsOptions {
   token?: string | null;
@@ -36,13 +34,13 @@ export const useConversations = ({
 
     setLoading(!hasLoadedRef.current);
     try {
-      const data = await ConversationsApi.getConversations();
-      setConversations(dedupeMirroredConversations(asArray<ConversationEntity>(data)));
+      const queues = await TicketsApi.getTicketQueues();
+      setConversations(ticketQueuesToConversations(queues));
       hasLoadedRef.current = true;
       setError(null);
     } catch (refreshError) {
       const message =
-        refreshError instanceof Error ? refreshError.message : "Unable to sync conversations.";
+        refreshError instanceof Error ? refreshError.message : "Unable to sync tickets.";
       setError(message);
       throw refreshError;
     } finally {
@@ -57,7 +55,7 @@ export const useConversations = ({
     }
 
     refresh().catch((refreshError) => {
-      console.error("Unable to sync conversations", refreshError);
+      console.error("Unable to sync tickets", refreshError);
     });
   }, [clearState, refresh, token]);
 
@@ -66,7 +64,7 @@ export const useConversations = ({
 
     const intervalId = window.setInterval(() => {
       refresh().catch((pollError) => {
-        console.error("Unable to poll conversations", pollError);
+        console.error("Unable to poll tickets", pollError);
       });
     }, pollingIntervalMs);
 

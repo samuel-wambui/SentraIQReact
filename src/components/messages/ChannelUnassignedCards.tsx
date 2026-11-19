@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { ChannelIcon } from "@/components/messages/ChannelIcon";
 import { ConversationChannel, ConversationChannelSummary } from "@/lib/conversations";
@@ -7,24 +7,22 @@ import { ConversationChannel, ConversationChannelSummary } from "@/lib/conversat
 interface ChannelTicketCardProps {
   channel: ConversationChannel;
   label: string;
-  activeCount: number;
   newCount: number;
   onSelect: () => void;
-  showArrow?: boolean;
 }
 
 export const ChannelTicketCard = ({
   channel,
   label,
-  activeCount,
   newCount,
   onSelect,
-  showArrow = true,
 }: ChannelTicketCardProps) => (
   <Card
-    className="cursor-pointer transition-shadow hover:shadow-md"
+    className={`relative aspect-[2/1] cursor-pointer overflow-hidden border-0 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${channelTileColors[channel]}`}
     role="button"
     tabIndex={0}
+    aria-label={`${label}: ${newCount} new messages`}
+    title={`${label}: ${newCount} new messages`}
     onClick={onSelect}
     onKeyDown={(event) => {
       if (event.key === "Enter" || event.key === " ") {
@@ -33,24 +31,28 @@ export const ChannelTicketCard = ({
       }
     }}
   >
-    <CardContent className="flex items-center gap-4 p-5">
-      <ChannelIcon channel={channel} />
-      <div className="min-w-0 flex-1">
-        <p className="font-semibold text-foreground">{label}</p>
-        <p className="text-sm text-muted-foreground">{activeCount} active tickets</p>
-      </div>
-      <div className="text-right">
-        <p className="text-3xl font-bold text-foreground">{newCount}</p>
-        <p className="text-xs text-muted-foreground">new</p>
-      </div>
-      {showArrow && (
-        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground">
-          <ArrowRight className="h-4 w-4" />
-        </span>
-      )}
+    <CardContent className="flex h-full items-center justify-center p-0">
+      <ChannelIcon channel={channel} className={`h-11 w-11 rounded-full bg-white ${channelIconColors[channel]}`} />
+      <span className="absolute right-2 top-2 flex h-7 min-w-7 items-center justify-center rounded-full bg-[#dc2626] px-2 text-xs font-bold text-white shadow-sm">
+        {newCount}
+      </span>
     </CardContent>
   </Card>
 );
+
+const channelTileColors: Record<ConversationChannel, string> = {
+  facebook: "bg-[#4369a7]",
+  whatsapp: "bg-[#168b62]",
+  instagram: "bg-[#c83f6f]",
+  x: "bg-[#242424]",
+};
+
+const channelIconColors: Record<ConversationChannel, string> = {
+  facebook: "text-[#4267B2]",
+  whatsapp: "text-[#128C7E]",
+  instagram: "text-[#E1306C]",
+  x: "text-black",
+};
 
 interface ChannelUnassignedCardsProps {
   summary: ConversationChannelSummary[];
@@ -81,7 +83,6 @@ export const ChannelUnassignedCards = ({ summary, loading = false }: ChannelUnas
             key={channel.channel}
             channel={channel.channel}
             label={channel.label}
-            activeCount={channel.total}
             newCount={channel.unassigned}
             onSelect={() => navigate(`/messages?view=new&channel=${channel.channel}`)}
           />

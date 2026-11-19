@@ -5,6 +5,9 @@ export type ConversationChannel = "whatsapp" | "facebook" | "x" | "instagram";
 export interface ConversationEntity {
   id?: number | string;
   conversationId?: number | string;
+  ticketNumber?: string | null;
+  ticketQueue?: "new" | "handover" | "active" | "open" | "closed" | "all" | null;
+  ticketHandoverSource?: "AI" | "BANK_SUPPORT" | string | null;
   source?: string | null;
   channel?: string | null;
   status?: string | null;
@@ -14,6 +17,9 @@ export interface ConversationEntity {
   senderId?: string | null;
   senderName?: string | null;
   sender_name?: string | null;
+  profilePictureUrl?: string | null;
+  profilePic?: string | null;
+  profile_pic?: string | null;
   recipientId?: string | null;
   assignedAgentId?: number | string | null;
   assigned_agent_id?: number | string | null;
@@ -49,6 +55,10 @@ export interface ConversationEntity {
   handed_over_from_ai_agent_expires_at?: string | null;
   handoverNote?: string | null;
   handover_note?: string | null;
+  closingRemarks?: string | null;
+  closing_remarks?: string | null;
+  ticketClosedBy?: string | null;
+  ticket_closed_by?: string | null;
   startedAt?: string | null;
   lastMessageAt?: string | null;
   assignedAt?: string | null;
@@ -68,13 +78,24 @@ export interface ConversationMessageEntity {
   messageId?: string | null;
   conversationId?: number | string | null;
   senderType?: string | null;
+  source?: string | null;
+  channel?: string | null;
   senderId?: string | null;
   senderName?: string | null;
   sender_name?: string | null;
+  profilePictureUrl?: string | null;
+  profilePic?: string | null;
+  profile_pic?: string | null;
+  recipientId?: string | null;
   message?: string | null;
   body?: string | null;
   text?: string | null;
   content?: string | null;
+  reply?: string | null;
+  repliedBy?: string | null;
+  repliedByUsername?: string | null;
+  repliedByFirstName?: string | null;
+  repliedAt?: string | null;
   category?: string | null;
   sentiment?: string | null;
   confidence?: number | string | null;
@@ -92,6 +113,7 @@ export interface ConversationChannelSummary {
   channel: ConversationChannel;
   label: string;
   total: number;
+  active?: number;
   unassigned: number;
   statuses: Record<string, number>;
 }
@@ -204,7 +226,16 @@ export const getConversationChannel = (conversation: ConversationEntity) =>
 const firstDisplayText = (...values: Array<unknown>) => {
   for (const value of values) {
     const text = String(value ?? "").trim();
-    if (text) return text;
+    if (text) return text.replace(/^(?:"|')|(?:"|')$/g, "").trim();
+  }
+
+  return "";
+};
+
+const firstCustomerDisplayText = (...values: Array<unknown>) => {
+  for (const value of values) {
+    const text = firstDisplayText(value);
+    if (text && !/^https?:\/\//i.test(text)) return text;
   }
 
   return "";
@@ -214,7 +245,7 @@ export const getConversationCustomerLabel = (
   conversation?: ConversationEntity | null,
   latestMessage?: ConversationMessageEntity | null
 ) =>
-  firstDisplayText(
+  firstCustomerDisplayText(
     conversation?.senderName,
     conversation?.sender_name,
     latestMessage?.senderName,
@@ -228,7 +259,7 @@ export const getMessageCustomerLabel = (
   message?: ConversationMessageEntity | null,
   conversation?: ConversationEntity | null
 ) =>
-  firstDisplayText(
+  firstCustomerDisplayText(
     message?.senderName,
     message?.sender_name,
     conversation?.senderName,
@@ -237,6 +268,16 @@ export const getMessageCustomerLabel = (
     conversation?.senderId,
     "Customer"
   );
+
+export const getProfilePictureUrl = (
+  ...sources: Array<ConversationEntity | ConversationMessageEntity | null | undefined>
+) => {
+  for (const source of sources) {
+    const url = firstDisplayText(source?.profilePictureUrl, source?.profilePic, source?.profile_pic);
+    if (url) return url;
+  }
+  return null;
+};
 
 export const getAssignedAgentId = (conversation: ConversationEntity) =>
   conversation.assignedAgentId ??
@@ -311,8 +352,17 @@ export const isAiAgentHandoverActive = (conversation?: ConversationEntity | null
 export const isLastAnsweredByAiAgent = (conversation?: ConversationEntity | null) =>
   booleanFlag(conversation?.lastAnsweredByAiAgent ?? conversation?.last_answered_by_ai_agent);
 
-export const getMessageAnsweredBy = (message?: ConversationMessageEntity | null) =>
-  message?.senderId ?? null;
+export const getMessageAnsweredBy = (message?: ConversationMessageEntity | null) => {
+  if (!message) return null;
+
+  const firstName = String(message.repliedByFirstName ?? "").trim();
+  const username = String(message.repliedByUsername ?? message.senderId ?? "").trim();
+  if (firstName && username && firstName.toLowerCase() !== username.toLowerCase()) {
+    return `${firstName} (${username})`;
+  }
+
+  return firstDisplayText(firstName, message.senderName, message.sender_name, username, message.repliedBy);
+};
 
 export const isMessageAnsweredByAiAgent = (message?: ConversationMessageEntity | null) => {
   const senderType = String(message?.senderType ?? "").trim().toUpperCase();
@@ -334,6 +384,22 @@ export const isConversationUnassigned = (conversation: ConversationEntity) => {
 export const getConversationStatus = (conversation: ConversationEntity) =>
   String(conversation.status || "UNKNOWN").toUpperCase();
 
+export const isReturnedToAiConversation = (conversation?: ConversationEntity | null) => {
+  if (!conversation) return false;
+  return (
+    getConversationStatus(conversation) === "RETURNED_TO_AI" ||
+    String(conversation.ticketHandoverSource ?? "").trim().toUpperCase() === "BANK_SUPPORT"
+  );
+};
+
+export const getConversationDisplayStatus = (conversation: ConversationEntity) => {
+  if (isReturnedToAiConversation(conversation)) return "Returned to AI";
+  if (String(conversation.ticketHandoverSource ?? "").trim().toUpperCase() === "AI") {
+    return "Handed over to support agent";
+  }
+  return statusLabel(getConversationStatus(conversation));
+};
+
 export const isTerminalConversation = (conversation: ConversationEntity) =>
   ["CLOSED", "RESOLVED"].includes(getConversationStatus(conversation));
 
@@ -343,7 +409,8 @@ export const isNewQueueConversation = (conversation: ConversationEntity) =>
     (!isTerminalConversation(conversation) && isLastAnsweredByAiAgent(conversation)));
 
 export const isHandedOverConversation = (conversation: ConversationEntity) =>
-  (getConversationStatus(conversation) === "HANDED_OVER" || isAiAgentHandoverActive(conversation)) &&
+  (["HANDED_OVER", "RETURNED_TO_AI"].includes(getConversationStatus(conversation)) ||
+    isAiAgentHandoverActive(conversation)) &&
   isConversationUnassigned(conversation);
 
 export const isActiveConversation = (conversation: ConversationEntity) =>
@@ -418,6 +485,7 @@ export const buildConversationSummary = (
       channel: channel.id,
       label: channel.label,
       total: 0,
+      active: 0,
       unassigned: 0,
       statuses: {},
     });
@@ -432,6 +500,7 @@ export const buildConversationSummary = (
 
     const status = String(conversation.status || "UNKNOWN").toUpperCase();
     if (!isTerminalConversation(conversation)) item.total += 1;
+    if (isActiveConversation(conversation)) item.active = (item.active ?? 0) + 1;
     item.statuses[status] = (item.statuses[status] ?? 0) + 1;
     if (isNewQueueConversation(conversation)) item.unassigned += 1;
   });

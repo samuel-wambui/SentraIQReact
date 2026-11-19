@@ -1,7 +1,7 @@
 import { isJwtExpired } from "@/lib/authToken";
 import { getStoredAccessToken } from "@/lib/authSession";
 
-export const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8081";
+export const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 export const AUTH_SESSION_EXPIRED_EVENT = "auth:session-expired";
 
 const getAccessToken = () => getStoredAccessToken();

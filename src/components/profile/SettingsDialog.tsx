@@ -43,7 +43,7 @@ const SettingsDialog = ({ open, onOpenChange }: SettingsDialogProps) => {
     try {
       await apiFetch(`/api/users/change-password`, {
         method: "POST",
-        body: { username: user.username, currentPassword, newPassword },
+        body: { username: user.username, currentPassword, newPassword, confirmPassword },
       });
 
       toast({ title: "Password updated", description: "Your password has been changed successfully." });
@@ -51,8 +51,9 @@ const SettingsDialog = ({ open, onOpenChange }: SettingsDialogProps) => {
       setNewPassword("");
       setConfirmPassword("");
       onOpenChange(false);
-    } catch (error: any) {
-      toast({ title: "Error updating password", description: error.message, variant: "destructive" });
+    } catch (error: unknown) {
+      const description = error instanceof Error ? error.message : "Unable to update password.";
+      toast({ title: "Error updating password", description, variant: "destructive" });
     } finally {
       setLoading(false);
     }

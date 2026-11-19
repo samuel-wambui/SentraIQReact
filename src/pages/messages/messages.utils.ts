@@ -92,6 +92,7 @@ export const statusBadgeVariant = (status?: string | null): BadgeProps["variant"
     case "PENDING_CUSTOMER":
       return "warning";
     case "HANDED_OVER":
+    case "RETURNED_TO_AI":
       return "secondary";
     case "ESCALATED":
       return "destructive";

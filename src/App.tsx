@@ -9,20 +9,20 @@ import { useAuth } from "./components/auth/AuthProvider";
 import ProtectedRoute from "./components/ProtectedRoute";
 import RoleBasedRoute from "./components/RoleBasedRoute";
 import { Layout } from "./components/Layout";
-import Dashboard from "./pages/Dashboard";
 import Auth from "./pages/Auth";
+import ResetPassword from "./pages/ResetPassword";
 import Admin from "./pages/Admin";
 import SuperUserDashboard from "./pages/SuperUserDashboard";
 import NotFound from "./pages/NotFound";
-import { useUserRole } from "./hooks/useUserRole";
 const Messages = lazy(() => import("./pages/Messages"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const TicketHistory = lazy(() => import("./pages/TicketHistory"));
 const Reports = lazy(() => import("./pages/Reports"));
 
 const RoleBasedRedirect = () => {
   const { user, loading: authLoading } = useAuth();
-  const { role, loading: roleLoading } = useUserRole();
 
-  if (authLoading || roleLoading) {
+  if (authLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <p className="text-muted-foreground">Loading...</p>
@@ -34,7 +34,7 @@ const RoleBasedRedirect = () => {
     return <Navigate to="/auth" replace />;
   }
 
-  return <Navigate to={role === "super_user" ? "/super-user" : "/dashboard"} replace />;
+  return <Navigate to="/dashboard" replace />;
 };
 
 const queryClient = new QueryClient();
@@ -54,6 +54,8 @@ const App = () => (
         <AuthProvider>
           <Routes>
             <Route path="/auth" element={<Auth />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/set-password" element={<ResetPassword />} />
             <Route
               path="/"
               element={
@@ -68,7 +70,9 @@ const App = () => (
                 path="dashboard"
                 element={
                   <RoleBasedRoute allowedRoles={["agent", "admin", "super_user"]}>
-                    <Dashboard />
+                    <Suspense fallback={<RouteFallback />}>
+                      <Dashboard />
+                    </Suspense>
                   </RoleBasedRoute>
                 }
               />
@@ -94,6 +98,16 @@ const App = () => (
                   <RoleBasedRoute allowedRoles={["admin", "agent", "super_user"]}>
                     <Suspense fallback={<RouteFallback />}>
                       <Messages />
+                    </Suspense>
+                  </RoleBasedRoute>
+                }
+              />
+              <Route
+                path="ticket-history"
+                element={
+                  <RoleBasedRoute allowedRoles={["admin", "agent", "super_user"]}>
+                    <Suspense fallback={<RouteFallback />}>
+                      <TicketHistory />
                     </Suspense>
                   </RoleBasedRoute>
                 }

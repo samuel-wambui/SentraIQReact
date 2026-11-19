@@ -1,30 +1,24 @@
-import equityLogo from "@/assets/equity-logo.png";
 import { ReactNode } from "react";
-import { Link } from "react-router-dom";
 
 interface HeaderProps {
   children?: ReactNode;
   actions?: ReactNode;
+  title?: string;
+  subtitle?: string;
 }
 
-const Header = ({ children, actions }: HeaderProps) => {
+const Header = ({ children, actions, title = "SentraIQ", subtitle = "Support operations" }: HeaderProps) => {
   return (
-    <header className="sticky top-0 z-50 border-b px-6 py-4 shadow-sm bg-white">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+    <header className="sticky top-0 z-50 border-b border-[#26344a] bg-[#0b1220] px-3 py-1.5 text-white shadow-sm sm:px-4">
+      <div className="flex min-h-10 items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2.5">
           {children}
-          <Link to="/" className="flex items-center gap-4">
-            <img 
-              src={equityLogo} 
-              alt="Equity Bank Logo" 
-              className="h-10 object-contain cursor-pointer hover:opacity-80 transition-opacity"
-            />
-            <h1 className="text-xl font-semibold text-[#b71c1c]">
-              SentraIQ
-            </h1>
-          </Link>
+          <div className="min-w-0">
+            <h1 className="truncate text-sm font-semibold text-white">{title}</h1>
+            <p className="hidden truncate text-[10px] text-slate-400 sm:block">{subtitle}</p>
+          </div>
         </div>
-        {actions && <div className="flex items-center gap-3">{actions}</div>}
+        {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
       </div>
     </header>
   );

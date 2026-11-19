@@ -1,0 +1,1437 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "4855d225-8175-4f84-8ef0-13965fdcdecc",
+              "leftValue": "={{$json.query[\"hub.verify_token\"] === \"Samuel-wambui\"}}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1568,
+        368
+      ],
+      "id": "c3ca49db-b5d0-4025-836f-2df54eae64d4",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "path": "facebook-webhook",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1808,
+        368
+      ],
+      "id": "99844449-4d98-4d17-a864-d1b33dc761cb",
+      "name": "Meta-Webhook-Get",
+      "webhookId": "51fb1abe-497e-4cbb-a71a-e52905f5168a"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "facebook-webhook",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1808,
+        176
+      ],
+      "id": "2cd5bf8e-6aaa-4c39-ad84-b9f920d0aae4",
+      "name": "Meta-Webhook-Post",
+      "webhookId": "51fb1abe-497e-4cbb-a71a-e52905f5168a"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $json.body || $json;\nconst results = [];\n\nfunction detectSource(data) {\n  if (data.object === \"whatsapp_business_account\") return \"whatsapp\";\n  if (data.object === \"instagram\") return \"instagram\";\n  if (data.object === \"page\") return \"facebook\";\n  return \"unknown\";\n}\n\nfunction normalizeFacebookOrInstagramMessaging(data) {\n  for (const entry of data.entry || []) {\n    for (const event of entry.messaging || []) {\n      results.push({\n        source: detectSource(data),\n        eventType: \"message\",\n        senderId: event.sender?.id || null,\n        recipientId: event.recipient?.id || null,\n        messageId: event.message?.mid || null,\n        message: event.message?.text || \"\",\n        timestamp: event.timestamp || entry.time || null,\n        replyTo: event.sender?.id || null,\n        raw: event\n      });\n    }\n  }\n}\n\nfunction normalizeFacebookFeed(data) {\n  for (const entry of data.entry || []) {\n    for (const change of entry.changes || []) {\n      if (change.field !== \"feed\") continue;\n\n      const value = change.value || {};\n\n      results.push({\n        source: \"facebook\",\n        eventType: value.item || \"feed\",\n        feedVerb: value.verb || null,\n        senderId: value.from?.id || null,\n        senderName: value.from?.name || null,\n        recipientId: entry.id || null,\n        messageId: value.comment_id || value.post_id || null,\n        message: value.message || \"\",\n        timestamp: value.created_time || entry.time || null,\n\n        postId: value.post_id || value.post?.id || null,\n        commentId: value.comment_id || null,\n        parentId: value.parent_id || null,\n        permalinkUrl: value.post?.permalink_url || null,\n\n        replyTo: value.comment_id || value.post_id || null,\n        raw: change\n      });\n    }\n  }\n}\n\nfunction normalizeWhatsApp(data) {\n  for (const entry of data.entry || []) {\n    for (const change of entry.changes || []) {\n      const value = change.value || {};\n\n      // Get contact profile name if available\n      const contact = value.contacts?.[0] || {};\n      const senderName = contact.profile?.name || null;\n\n      for (const message of value.messages || []) {\n        results.push({\n          source: \"whatsapp\",\n          eventType: \"message\",\n\n          phoneNumber: message.from || null,\n          senderName: senderName,\n\n          recipientId: value.metadata?.phone_number_id || null,\n          messageId: message.id || null,\n          message: message.text?.body || \"\",\n          timestamp: message.timestamp || null,\n\n          replyTo: message.from || null,\n          phoneNumberId: value.metadata?.phone_number_id || null,\n\n          raw: message\n        });\n      }\n    }\n  }\n}\n\nif (data.object === \"whatsapp_business_account\") {\n  normalizeWhatsApp(data);\n} else {\n  normalizeFacebookOrInstagramMessaging(data);\n  normalizeFacebookFeed(data);\n}\n\nreturn results.map(item => ({ json: item }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1152,
+        352
+      ],
+      "id": "cb567080-8011-44c8-b4bc-833e4058e2ae",
+      "name": "Message filter"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.entity?.source ||$json.body?.source }}",
+                    "rightValue": "whatsapp",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "bb44f1dc-99f1-40f0-a28d-97adf48300a8"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "WhatsApp"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "14bb575d-8615-4627-a552-00a26d449a2f",
+                    "leftValue": "={{ $json.entity?.source ||$json.body?.source }}",
+                    "rightValue": "facebook",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Facebook"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "b5ff667c-b71f-4c3d-98c7-a3c83b80d2ac",
+                    "leftValue": "={{ $json.entity?.source ||$json.body?.source }}",
+                    "rightValue": "instagram",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "instagram"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -1472,
+        736
+      ],
+      "id": "b7a2fce5-363a-4a87-814c-c8341a8c26ac",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v23.0/{{ $json.entity?.recipientId || $json.body?.recipientId}}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer EAANZCy23LiTMBRnEd7mAlEzoKH6ENE3NjM41XK92ObFPRL3GZCHiQtFQrqXOJdUlNbIKXeK3PUSEBuqtEotRmgN4sSZChn7S9b1sJEkZCLWn4vIouAQ8qseXRJFKmaOZCdgF71nNst6ozcKCEqxI3BEp1kSE2iGpj8VFBm8ZAfPKLSH48oNGodkZCS9eRUw4gZDZD"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"recipient_type\": \"individual\",\n  \"to\": \"{{ String($json.entity?.senderId || $json.body?.senderId).replace(/[^0-9]/g, '') }}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"preview_url\": false,\n    \"body\": {{ JSON.stringify($json.entity?.reply || $json.body?.reply) }}\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1248,
+        608
+      ],
+      "id": "9201e5f7-709d-4fc5-b32c-c60b10b23dcc",
+      "name": "ReplyWhatsapp"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v23.0/{{ $json.entity?.recipientId || $json.body?.recipientId}}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer EAANZCy23LiTMBRZBZAKFAQcNw5JVRkYaDL33ztpSVzSteTecl9nVT32GaZBXKo6vPRSqmseZBv9ZA1r90qGIoEJEiPpryhl998bDRTSDet3ZAY8jxjWNVYR61Ay0DV3YvR4WRpyXEgp1fsZCFtDv88vUxL0jWD4kJuQrdZAr729yMRxfEU5znHyZBUyj1fPkT0W54W49lvNxZBISD7KEdvmZBJuwIwZDZD"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messaging_type\": \"RESPONSE\",\n  \"recipient\": {\n    \"id\": \"{{ $json.entity?.senderId ||  $json.body.senderId}}\"\n  },\n  \"message\": {\n    \"text\": \"{{ $json.entity?.reply ||$json.body.reply }}\"\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1248,
+        736
+      ],
+      "id": "bee6592b-6e89-403b-be2c-7c63f2a888d0",
+      "name": "ReplyFacebook"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.instagram.com/v25.0/me/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer IGAFZBZA7gm6paBBZAFpRem5nMldOdHA5VGs5a25fT3ZAYaDF0d3Q3UHJXVjJfTjdhNW5JemhuNlhSU1ZAtYzNPdFdQNFg5cmg5eERDcGQzZAzk3TWZAJVWd5eVlXd3RMeEZAVTFdPeGh5bm9YZAlNST2tlT2RBMGVJckpLM3JiSEcwdV9aawZDZD"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  JSON.stringify({\n    recipient: {\n      id: $json.body.customerId\n    },\n    message: {\n      text: $json.body?.reply\n    }\n  })\n}} ",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1264,
+        880
+      ],
+      "id": "f2cc2cc0-f8dc-4118-817b-4c9b1c7fae75",
+      "name": "ReplyInstagram"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{$json.query[\"hub.challenge\"]}}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -1360,
+        352
+      ],
+      "id": "d0736345-a51b-4456-b78a-d188dbd11a04",
+      "name": "Respond to Meta"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Message filter').item.json.phoneNumber || $('Message filter').item.json.senderId }}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        160,
+        608
+      ],
+      "id": "13deb757-c945-4c04-a996-cb52ca9ef31b",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-5",
+          "mode": "list",
+          "cachedResultName": "gpt-5"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        608
+      ],
+      "id": "2cae20c7-fe55-465d-ac48-9af417fb8762",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "aVcLg2QL78O2Y4yn",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-5",
+          "mode": "list",
+          "cachedResultName": "gpt-5"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        496,
+        800
+      ],
+      "id": "25928b48-5cc2-45eb-9f35-eafa9e3c74d7",
+      "name": "OpenAI Chat Model1",
+      "credentials": {
+        "openAiApi": {
+          "id": "aVcLg2QL78O2Y4yn",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Message filter').item.json.phoneNumber||$('If2').item.json.id || $('Message filter').item.json.senderId}}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        656,
+        768
+      ],
+      "id": "e558a0f7-3a55-4a53-90ad-438935b703f1",
+      "name": "Simple Memory1"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are the Equity Bank Customer Conversation Orchestrator.\n\nCustomer message:\n\n{{ $('Message filter').item.json.raw?.message?.text ?? $('Message filter').item.json.raw?.text?.body }}\n\ncustomerName: {{ JSON.stringify(\n  $('Message filter').item.json.senderName ||\n  (\n    $('Names').isExecuted\n      ? (\n          $('Names').first().json.name ||\n          (\n            (($('Names').first().json.first_name || '') + ' ' +\n             ($('Names').first().json.last_name || '')\n            ).trim()\n          ) ||\n          $('Names').first().json.username ||\n          ''\n        )\n      : ''\n  ) ||\n  $('Message filter').item.json.senderId ||\n  $('Message filter').item.json.phoneNumber\n) }}\n\nYour responsibility is to determine whether the customer's message is:\n\n1. A greeting or simple acknowledgement\n2. An enquiry\n3. A complaint/support issue\n4. An unclear request requiring clarification\nCONVERSATION CLOSING RULE\n\nBefore applying any routing rules, determine whether the customer is clearly ending the conversation.\n\nExamples include:\n\nNo\nNo thanks\nNo thank you\nThat's all\nNothing else\nI am good\nI'm good\nOkay thanks\nAlright thanks\nThanks\nThank you\nAsante\nSawa\nNimeelewa\nSolved\nResolved\n\nIf the customer is ending the conversation, return:\n\n{\n\"answered_by\": \"orchestrator\",\n\"customer_handed_over_to_human_support_agent\": false,\n\"answer\": \"Thank you for contacting Equity Bank. We are proud to serve you. Have a great day.\"\n}\n\nDo not ask if the customer needs further assistance.\n\nDo not return:\n\"We are proud to serve you as our customer. Do you have anything else you would like to be assisted with?\"\n\nDo not route to any tool.\n\nA conversation closing message always takes priority over greeting, enquiry, support, clarification, appreciation, or acknowledgement detection.\n\nOnly use:\n\"We are proud to serve you as our customer. Do you have anything else you would like to be assisted with?\"\n\nwhen the customer is expressing appreciation after receiving assistance but has NOT indicated that the conversation is ending. \n\nYou must always return valid JSON.\n\nAVAILABLE ROUTES\n\n1. Direct Orchestrator Response\n\nUse only for:\n\n* Greetings\n* Appreciation\n* Simple acknowledgements\n* Clarification questions\n\nExamples:\n\n* Hello\n* Hi\n* Hey\n* Good morning\n* Good afternoon\n* Good evening\n* Habari\n* Mambo\n* Sasa\n* Thank you\n\nGreeting Response:\n\n{\n\"answered_by\": \"orchestrator\",\n\"customer_handed_over_to_human_support_agent\": false,\n\"answer\": \"Hi ((use customer name)), thank you for contacting Equity Bank. How can I help you today?\"\n}\n\n2. Customer Support Knowledge Base\n\nUse for enquiries where the customer wants information, guidance, instructions, requirements, charges, limits, product details, or process explanations.\n\nExamples:\n\n* How can I apply for a loan?\n* What is your paybill number?\n* How do I open an account?\n* How do I reset my PIN?\n* What are the requirements for a loan?\n* How do I register for mobile banking?\n* What are your working hours?\n* Where is the nearest branch?\n* What are your account charges?\n\nENQUIRY HANDLING\n\nWhen routing to Customer Support Knowledge Base:\n\nPass the customer's original message exactly as received.\n\nExample:\n\nCustomer:\nHow do I apply for a loan?\n\nCall Customer Support Knowledge Base with:\n\n{\n\"Query\": \"How do I apply for a loan?\"\n}\n\nWait for the response.\n\nIf a valid answer is returned:\n\n{\n\"answered_by\": \"enquiry support\",\n\"customer_handed_over_to_human_support_agent\": false,\n\"answer\": \"<Knowledge Base answer>\"\n}\n\nIf the response indicates that no useful answer exists, including:\n\n* No information was found regarding that question\n* No relevant information found\n* I do not know\n* Empty response\n* Null response\n* Incomplete response\n\nThen immediately route to Sentiment Analysis and Customer Support.\n\nPass the customer's original message exactly as received.\n\nExample:\n\n{\n\"message\": \"<original customer message>\"\n}\n\nAfter successful handover return:\n\n{\n\"answered_by\": \"human agent\",\n\"customer_handed_over_to_human_support_agent\": true,\n\"answer\": \"handed_over\"\n}\n\n3. Sentiment Analysis and Customer Support\n\nUse for complaints, incidents, service failures, disputes, fraud concerns, or any situation requiring investigation or human intervention.\n\nExamples:\n\n* My ATM card was blocked\n* My money is missing\n* Someone withdrew money from my account\n* I sent money to the wrong paybill\n* The reversal has delayed\n* My app is not working\n* My card transaction failed\n* I cannot access my account\n* ATM swallowed my card\n* OTP is not arriving\n* Your staff ignored my complaint\n* I want to speak to an agent\n\nSUPPORT HANDLING\n\nPass the customer's original message exactly as received.\n\nExample:\n\n{\n\"message\": \"<original customer message>\"\n}\n\nDo not:\n\n* Summarize\n* Rewrite\n* Modify\n* Classify yourself\n* Call escalation endpoints yourself\n\nThe Sentiment Analysis and Customer Support tool is responsible for:\n\n* Complaint classification\n* Sentiment analysis\n* Escalation\n* Human support handover\n\nAfter successful execution return:\n\n{\n\"answered_by\": \"human agent\",\n\"customer_handed_over_to_human_support_agent\": true,\n\"answer\": \"handed_over\"\n}\n\nCOMBINED ENQUIRY + COMPLAINT\n\nIf a message contains both:\n\n* An enquiry\n* A complaint\n\nAlways prioritize support.\n\nExample:\n\nHow do I reverse money? I sent it to the wrong paybill and nobody is helping me.\n\nRoute directly to Sentiment Analysis and Customer Support.\n\nUNCLEAR REQUESTS\n\nIf the message is too vague to classify confidently:\n\nExamples:\n\n* Help\n* Account\n* Loan\n* Problem\n* Assistance\n* Support\n\nReturn:\n\n{\n\"answered_by\": \"orchestrator\",\n\"customer_handed_over_to_human_support_agent\": false,\n\"answer\": \"Please share more details so I can assist you correctly. Is your request about an enquiry or an issue that needs support?\"\n}\n\nROUTING RULES\n\nRoute to Customer Support Knowledge Base when the customer wants:\n\n* Information\n* Instructions\n* Requirements\n* Procedures\n* Charges\n* Limits\n* Product information\n* Branch information\n* Loan information\n* Registration guidance\n* General guidance\n\nRoute to Sentiment Analysis and Customer Support when the customer reports:\n\n* ATM card issues\n* Failed transactions\n* Missing funds\n* Fraud\n* Scams\n* Wrong transfers\n* Delayed reversals\n* Blocked accounts\n* Mobile app failures\n* Login issues\n* OTP issues\n* Poor customer service\n* Dissatisfaction\n* Threats to leave the bank\n* Any unresolved banking problem\n\nOUTPUT RULES\n\nReturn only valid JSON.\n\nDo not return markdown.\n\nDo not return explanations.\n\nDo not return code fences.\n\nDo not expose routing decisions.\n\nDo not expose tool names.\n\nDo not create additional fields.\n\nDo not return null values.\n\nDo not return empty answers.\n\nAlways return exactly:\n\n{\n\"answered_by\": \"\",\n\"customer_handed_over_to_human_support_agent\": false,\n\"answer\": \"\"\n}\n\nAllowed answered_by values:\n\n* orchestrator\n* enquiry support\n* human agent\n\nAllowed customer_handed_over_to_human_support_agent values:\n\n* true\n* false\n\nAlways prioritize customer safety, clarity, and correct routing.\n",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        224,
+        352
+      ],
+      "id": "4d9c8456-599d-4f19-8a2c-beac79233ea6",
+      "name": "Orchestrator"
+    },
+    {
+      "parameters": {
+        "text": "=You are a Sentiment and Complaint Classification Assistant for Equity Bank.\n\nAnalyze the customer message {{ $('Message filter').item.json.message }}\nThe message might be in english kiswahili, sheng, or mixed. if the message is notin englishtranslateit first to english.\n\nClassify the message into EXACTLY ONE category and EXACTLY ONE sentiment.\n\nReturn ONLY valid JSON. Do not include explanations, markdown, code fences, or extra text.\n\nAllowed categories:\n- ATM_CARD_ISSUE\n- MOBILE_APP_ISSUE\n- WRONG_TRANSFER\n- REVERSAL\n- FRAUD\n- ACCOUNT_ACCESS\n- LOAN_COMPLAINT\n- CUSTOMER_SERVICE\n- CARD_TRANSACTION_FAILURE\n- GENERAL_COMPLAINT\n\nAllowed sentiments:\n- Positive\n- Negative\n- Neutral\nNB\nIf customer is seeking for asistance dont classify it as negative use message tone to classify either negative, positive or neutral\nCategory rules:\n\nATM_CARD_ISSUE:\nUse when the complaint is about ATM card problems, blocked card, retained card, lost card, card PIN issues, card activation, or card not being accepted at ATM.\n\nMOBILE_APP_ISSUE:\nUse when the complaint is about the Equity mobile app, app login, app downtime, app errors, OTP on app, app transaction failure, or poor app experience.\n\nWRONG_TRANSFER:\nUse when the customer sent money to the wrong paybill, till, phone number, account, or recipient.\n\nREVERSAL:\nUse when the main complaint is that money has not been reversed, refund is delayed, reversal is pending, or failed transaction amount has not returned.\n\nFRAUD:\nUse when the customer reports unauthorized transactions, stolen money, scam, suspicious activity, account takeover, missing funds without customer error, or suspected fraud.\n\nACCOUNT_ACCESS:\nUse when the customer cannot access their account, account is blocked, frozen, locked, dormant, restricted, or login/access is denied outside the mobile app context.\n\nLOAN_COMPLAINT:\nUse when the message is about loan application, loan rejection, loan limit, loan repayment, loan deductions, loan balance, Fuliza-like loan concerns, or loan customer experience.\n\nCUSTOMER_SERVICE:\nUse when the main issue is poor staff behavior, delayed response, ignored complaint, poor communication, branch service issue, or dissatisfaction with how Equity handled the matter.\n\nCARD_TRANSACTION_FAILURE:\nUse when a card payment, POS transaction, online card transaction, withdrawal, or purchase failed, declined, deducted but merchant not paid, or card transaction did not complete.\n\nGENERAL_COMPLAINT:\nUse only when the message is a complaint but does not clearly fit any category above, or when the complaint is too vague to classify confidently.\n\nSentiment rules:\n\nPositive:\nUse when the customer expresses satisfaction, appreciation, successful resolution, or positive feedback.\n\nNegative:\nUse when the customer expresses dissatisfaction, anger, frustration, complaint, loss, delay, threat to leave, or unresolved issue.\n\nNeutral:\nUse when the message is informational, unclear, a general inquiry, or does not clearly express satisfaction or dissatisfaction.\n\nPriority rules:\n- If the customer clearly says they sent money to the wrong recipient, choose WRONG_TRANSFER.\n- If the main pain is delayed refund or reversal, choose REVERSAL_DELAY.\n- If both wrong transfer and delayed reversal appear, choose REVERSAL_DELAY when the customer mainly complains that it has not been reversed.\n- If unauthorized activity or scam is mentioned, choose FRAUD.\n- If the issue is app-specific, choose MOBILE_APP_ISSUE.\n- If the issue is card payment or POS failure, choose CARD_TRANSACTION_FAILURE.\n- If the issue is ATM card status, retained card, blocked card, or card PIN, choose ATM_CARD_ISSUE.\n- If the complaint is mainly about staff/support handling, choose CUSTOMER_SERVICE.\n- Do not create new categories.\n- Category must exactly match one of the allowed categories.\n- Sentiment must exactly match one of the allowed sentiments.\n\n Call ServiceCentre tool with this values. example:\n\"category\": \"REVERSAL_DELAY\",\n\"sentiment\": \"Negative\",\n  \n",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agentTool",
+      "typeVersion": 3,
+      "position": [
+        592,
+        592
+      ],
+      "id": "c43c95ae-27f7-4e31-8b82-8dcc9ee0070e",
+      "name": "Sentiment analysis and customer support"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.NgrokLink }}/api/v1/tickets/check-handover/{{ $('Message filter').item.json.phoneNumber||$('Message filter').item.json.raw.sender.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Escalation-Workflow-Secret",
+              "value": "local-n8n-escalation-resolve-secret"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -800,
+        352
+      ],
+      "id": "d5c49eb5-6a42-499b-a227-a213fa750ef6",
+      "name": "Check status"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "3535f7f9-c9e8-490f-bfd6-db2ac3321b07",
+              "leftValue": "={{ $json.entity.handedOverFromAiAgent }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -32,
+        368
+      ],
+      "id": "a33dd064-0503-4ecf-a7cf-eabc65cd496e",
+      "name": "If2"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Ngrok').item.json.NgrokLink }}/api/v1/messages/hand-over-from-ai",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Escalation-Workflow-Secret",
+              "value": "=local-n8n-escalation-resolve-secret"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "=source",
+              "value": "={{ $('Message filter').item.json.source }}"
+            },
+            {
+              "name": "senderId",
+              "value": "={{ $('Message filter').item.json.phoneNumber ||$('If2').item.json.id || $('Message filter').item.json.senderId}}"
+            },
+            {
+              "name": "recipientId",
+              "value": "={{ $('Message filter').item.json.recipientId }}"
+            },
+            {
+              "name": "messageId",
+              "value": "={{ $('Message filter').item.json.messageId }}"
+            },
+            {
+              "name": "message",
+              "value": "={{ $('Message filter').item.json.message }}"
+            },
+            {
+              "name": "handedOverFromAiAgent",
+              "value": "true"
+            },
+            {
+              "name": "category",
+              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('parameters6_Value', ``, 'string') }}"
+            },
+            {
+              "name": "sentiment",
+              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('parameters7_Value', ``, 'string') }}"
+            },
+            {
+              "name": "receivedAt",
+              "value": "={{ (() => { const ts = Number($('Message filter').item.json.timestamp); return (ts > 9999999999 ? DateTime.fromMillis(ts) : DateTime.fromSeconds(ts)).toISO(); })() }}"
+            },
+            {
+              "name": "repliedAt",
+              "value": "={{ new Date().toISOString() }}"
+            },
+            {
+              "name": "senderName",
+              "value": "={{ JSON.stringify(\n  $('Message filter').item.json.senderName ||\n  (\n    $('Names').isExecuted\n      ? (\n          $('Names').first().json.name ||\n          (\n            (($('Names').first().json.first_name || '') + ' ' +\n             ($('Names').first().json.last_name || '')\n            ).trim()\n          ) ||\n          $('Names').first().json.username ||\n          ''\n        )\n      : ''\n  ) ||\n  $('Message filter').item.json.senderId ||\n  $('Message filter').item.json.phoneNumber\n) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.4,
+      "position": [
+        832,
+        768
+      ],
+      "id": "319f1f74-e520-43f6-b5a7-c8d9dda9fedd",
+      "name": "ServiceCentre"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "bf5cdf7a-bd42-4176-b0ef-6c58e1c37ebc",
+              "name": "NgrokLink",
+              "value": "https://unvulnerable-inexhaustible-kenneth.ngrok-free.dev/senctra",
+              "type": "string"
+            },
+            {
+              "id": "040ed334-1720-4099-9b99-a0300d3e29c3",
+              "name": "",
+              "value": "",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1008,
+        352
+      ],
+      "id": "3947cde0-9c6e-428b-bbb8-b573ed66f5e3",
+      "name": "Ngrok"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ReplyMeta",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1776,
+        752
+      ],
+      "id": "9ead71c7-671a-42ae-83fd-ac5fe4b3acbd",
+      "name": "Meta-Webhook-Post1",
+      "webhookId": "51fb1abe-497e-4cbb-a71a-e52905f5168a"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Ngrok').item.json.NgrokLink }}/api/v1/messages/create",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Escalation-Workflow-Secret",
+              "value": "local-n8n-escalation-resolve-secret"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"source\": \"{{ $('Message filter').item.json.source }}\",\n  \"recipientId\": \"{{ $('Message filter').item.json.recipientId }}\",\n  \"senderId\": \"{{ $('Message filter').item.json.senderId || $('Message filter').item.json.phoneNumber }}\",\n  \"receivedAt\": \"{{ DateTime.fromSeconds(Number($('Message filter').item.json.timestamp)).toISO() }}\",\n  \"senderName\": {{ JSON.stringify(\n  $('Message filter').item.json.senderName ||\n  (\n    $('Names').isExecuted\n      ? (\n          $('Names').first().json.name ||\n          (\n            (($('Names').first().json.first_name || '') + ' ' +\n             ($('Names').first().json.last_name || '')\n            ).trim()\n          ) ||\n          $('Names').first().json.username ||\n          ''\n        )\n      : ''\n  ) ||\n  $('Message filter').item.json.senderId ||\n  $('Message filter').item.json.phoneNumber\n) }},\n  \"customerMessageId\": \"{{ $('Message filter').item.json.messageId }}\",\n  \"customerMessage\": {{ JSON.stringify($('Message filter').item.json.message) }},\n  \"agentAnswerMessageId\": \"ai-agent-answer-{{ $('Message filter').item.json.messageId }}\",\n  \"agentAnswer\": {{ JSON.stringify($json.answer) }},\n  \"repliedAt\": \"{{ (() => { const ts = Number($('Message filter').item.json.timestamp); return (ts > 9999999999 ? DateTime.fromMillis(ts) : DateTime.fromSeconds(ts)).toISO(); })() }}\",\n  \"answeredBy\": \"AI Agent\",\n  \"category\": \"Inquiry\",\n  \"sentiment\": \"Neutral\",\n  \"confidence\": 0.96\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1264,
+        368
+      ],
+      "id": "2be18475-c279-4b22-95f0-152d481035ef",
+      "name": "PostFullconversation"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "32b0ffae-af78-4423-bc21-d3c46d0170cd",
+              "leftValue": "={{ $json.customer_handed_over_to_human_support_agent }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        704,
+        352
+      ],
+      "id": "2bcd5a02-307c-4e68-aacf-74873fc6add5",
+      "name": "AiHandOverCheck"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(item => {\n  return {\n    json: JSON.parse(item.json.output)\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        528,
+        352
+      ],
+      "id": "d28c6e08-79b8-4e10-a2bc-7c91eb002287",
+      "name": "ResponseToJson"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "ca3bc5a5-21ee-4d86-add1-1fae17e054ff",
+              "leftValue": "={{ !$json.entity || $json.entity?.ticketHandoverBy === \"BANK_SUPPORT\" || !($json.entity?.ticketHandedOver === true || $json.entity?.ticketHandedOver === \"true\") }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -624,
+        352
+      ],
+      "id": "c96b96f7-d1b7-48fb-a23f-4174db2fb0c3",
+      "name": "StatusHandover"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Ngrok').item.json.NgrokLink }}/api/v1/messages/conversation-continuation",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Escalation-Workflow-Secret",
+              "value": "local-n8n-escalation-resolve-secret"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  conversationId: $('Check status').item.json.entity.ticketNumber,\n  source: $('Message filter').item.json.source,\n  recipientId: $('Message filter').item.json.recipientId,\n  senderId: $('Message filter').item.json.phoneNumber || $('Message filter').item.json.senderId || $('Check status').item.json.entity.senderId,\n  senderName: $('Message filter').item.json.senderName || $('Check status').item.json.entity.senderName || $('Check status').item.json.entity.senderId,\n  customerMessageId: $('Message filter').item.json.messageId,\n  customerMessage: $('Message filter').item.json.message\n} }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -448,
+        608
+      ],
+      "id": "5421dae5-06b6-4c59-9d8e-3e9847c08896",
+      "name": "PostHandedoverTickets"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=reply sent",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -880,
+        592
+      ],
+      "id": "afd9db52-8bc5-431d-8ef1-378694f2dc50",
+      "name": "Respond to Meta1"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Message filter').item.json.source   }}",
+                    "rightValue": "instagram",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "b73f395e-3f1d-46c5-8d0a-290f57ed21e4"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "instagram"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "3f20d319-7b2a-4e84-a3c2-de7b78317acf",
+                    "leftValue": "={{ $('Message filter').item.json.source   }}",
+                    "rightValue": "facebook",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "facebook"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "35cc09cf-1b34-4ad4-9629-68ced4fd092e",
+                    "leftValue": "={{ $('Message filter').item.json.source   }}",
+                    "rightValue": "whatsapp",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "whatsapp"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -432,
+        320
+      ],
+      "id": "d8855adb-77c6-40b8-9856-ae804c52cc6d",
+      "name": "Switch1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "33052574-11ce-40bf-8882-098422c3e55a",
+              "name": "link",
+              "value": "=https://graph.facebook.com/v25.0/{{ $('Message filter').item.json.senderId }}",
+              "type": "string"
+            },
+            {
+              "id": "f6a5da04-8220-4ddc-a0c1-8896bff60c22",
+              "name": "token",
+              "value": "EAANZCy23LiTMBRu6JuAWfJLZAHPmW3vch2LMZAlX2Dnu8En3WzQY2rOBrLKSqMoZCCzsh4NYKNmxeMT0eIpAXDnEvKVZBC47zDRYVexX65oGAHecyUtK47pHTl1Cbk4QJyjASPn1ZCN4rFDpSV9Eaug84G2YzwkoZBuVutIyOpfZCTAyQxnjyxiVgQEcolfqR9gYNw8vAEcQPXC90XZByW0apUgZDZD",
+              "type": "string"
+            },
+            {
+              "id": "fa0afc2d-f4ed-4ca0-9119-838af582e709",
+              "name": "fields",
+              "value": "first_name,last_name",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -240,
+        256
+      ],
+      "id": "19a207e5-22c1-4f3f-88b4-89b58c877a9f",
+      "name": "Edit Fields2"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "33052574-11ce-40bf-8882-098422c3e55a",
+              "name": "link",
+              "value": "=https://graph.instagram.com/{{ $('Message filter').item.json.senderId }}",
+              "type": "string"
+            },
+            {
+              "id": "f6a5da04-8220-4ddc-a0c1-8896bff60c22",
+              "name": "token",
+              "value": "IGAFZBZA7gm6paBBZAFpRem5nMldOdHA5VGs5a25fT3ZAYaDF0d3Q3UHJXVjJfTjdhNW5JemhuNlhSU1ZAtYzNPdFdQNFg5cmg5eERDcGQzZAzk3TWZAJVWd5eVlXd3RMeEZAVTFdPeGh5bm9YZAlNST2tlT2RBMGVJckpLM3JiSEcwdV9aawZDZD",
+              "type": "string"
+            },
+            {
+              "id": "fa0afc2d-f4ed-4ca0-9119-838af582e709",
+              "name": "fields",
+              "value": "name,username",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -272,
+        64
+      ],
+      "id": "38a0a3a9-4e74-409d-aa1f-e9e7725016a4",
+      "name": "insta name request"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.link }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "={{ $json.fields }}"
+            },
+            {
+              "name": "access_token",
+              "value": "={{ $json.token }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -96,
+        64
+      ],
+      "id": "669ebd51-06fe-4dd3-96eb-ea12c615a587",
+      "name": "Names"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "njyMyclbHHB9Gtzt",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/njyMyclbHHB9Gtzt",
+          "cachedResultName": "OCR DocIngest RAG"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "message id": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('message_id', ``, 'string') }}",
+            "Query": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Query', ``, 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Query",
+              "displayName": "Query",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "message id",
+              "displayName": "message id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        320,
+        608
+      ],
+      "id": "f4d9b2f7-debb-40b9-9314-5a98c5e8441a",
+      "name": "Call 'OCR DocIngest RAG'"
+    }
+  ],
+  "connections": {
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Respond to Meta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meta-Webhook-Get": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meta-Webhook-Post": {
+      "main": [
+        [
+          {
+            "node": "Respond to Meta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message filter": {
+      "main": [
+        [
+          {
+            "node": "Ngrok",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "ReplyWhatsapp",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "ReplyFacebook",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "ReplyInstagram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ReplyWhatsapp": {
+      "main": [
+        [
+          {
+            "node": "Respond to Meta1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Meta": {
+      "main": [
+        [
+          {
+            "node": "Message filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "Orchestrator",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Orchestrator",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Sentiment analysis and customer support",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory1": {
+      "ai_memory": [
+        [
+          {
+            "node": "Sentiment analysis and customer support",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Orchestrator": {
+      "main": [
+        [
+          {
+            "node": "ResponseToJson",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sentiment analysis and customer support": {
+      "ai_tool": [
+        [
+          {
+            "node": "Orchestrator",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check status": {
+      "main": [
+        [
+          {
+            "node": "StatusHandover",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If2": {
+      "main": [
+        [
+          {
+            "node": "Orchestrator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ServiceCentre": {
+      "ai_tool": [
+        [
+          {
+            "node": "Sentiment analysis and customer support",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ngrok": {
+      "main": [
+        [
+          {
+            "node": "Check status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meta-Webhook-Post1": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostFullconversation": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AiHandOverCheck": {
+      "main": [
+        [],
+        [
+          {
+            "node": "PostFullconversation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ResponseToJson": {
+      "main": [
+        [
+          {
+            "node": "AiHandOverCheck",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "StatusHandover": {
+      "main": [
+        [
+          {
+            "node": "Switch1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PostHandedoverTickets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch1": {
+      "main": [
+        [
+          {
+            "node": "insta name request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Edit Fields2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields2": {
+      "main": [
+        [
+          {
+            "node": "Names",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "insta name request": {
+      "main": [
+        [
+          {
+            "node": "Names",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Names": {
+      "main": [
+        [
+          {
+            "node": "If2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'OCR DocIngest RAG'": {
+      "ai_tool": [
+        [
+          {
+            "node": "Orchestrator",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {
+    "Meta-Webhook-Get": [
+      {
+        "headers": {
+          "host": "n8n.digitalbank365.com",
+          "user-agent": "facebookplatform/1.0 (+http://developers.facebook.com)",
+          "accept": "*/*",
+          "accept-encoding": "deflate, gzip",
+          "via": "1.1 Caddy",
+          "x-forwarded-for": "69.63.189.40",
+          "x-forwarded-host": "n8n.digitalbank365.com",
+          "x-forwarded-proto": "https"
+        },
+        "params": {},
+        "query": {
+          "hub.mode": "subscribe",
+          "hub.challenge": "1245200890",
+          "hub.verify_token": "Samuel-wambui",
+          "hub_mode": "subscribe",
+          "hub_challenge": "1245200890",
+          "hub_verify_token": "Samuel-wambui"
+        },
+        "body": {},
+        "webhookUrl": "https://n8n.digitalbank365.com/webhook/facebook-webhook",
+        "executionMode": "production"
+      }
+    ],
+    "Meta-Webhook-Post": [
+      {
+        "headers": {
+          "host": "n8n.digitalbank365.com",
+          "x-forwarded-host": "n8n.digitalbank365.com",
+          "x-forwarded-port": "443",
+          "x-forwarded-proto": "https",
+          "x-real-ip": "69.171.230.3",
+          "x-forwarded-for": "69.171.230.3",
+          "connection": "upgrade",
+          "content-length": "557",
+          "accept": "*/*",
+          "accept-encoding": "deflate, gzip",
+          "user-agent": "facebookexternalua",
+          "content-type": "application/json",
+          "x-hub-signature": "sha1=7c00b2e4d2420f986695eb63d77ad20911a36524",
+          "x-hub-signature-256": "sha256=877330cf0bdf110bb162550354c5a3c977e7b972573778a1b1920ce7b2413f51"
+        },
+        "params": {},
+        "query": {},
+        "body": {
+          "object": "whatsapp_business_account",
+          "entry": [
+            {
+              "id": "1613992813010045",
+              "changes": [
+                {
+                  "value": {
+                    "messaging_product": "whatsapp",
+                    "metadata": {
+                      "display_phone_number": "254119320329",
+                      "phone_number_id": "1183763654813703"
+                    },
+                    "contacts": [
+                      {
+                        "profile": {
+                          "name": "samuel"
+                        },
+                        "wa_id": "254746703511",
+                        "user_id": "KE.2173923463397043"
+                      }
+                    ],
+                    "messages": [
+                      {
+                        "from": "254746703511",
+                        "from_user_id": "KE.2173923463397043",
+                        "id": "wamid.HBgMMjU0NzQ2NzAzNTExFQIAEhggQUNCNkVEMDBFQzMxRjFFNjAxMkNDMjJGOTExNjM1OTcA",
+                        "timestamp": "1790602487",
+                        "text": {
+                          "body": "Hello"
+                        },
+                        "type": "text"
+                      }
+                    ]
+                  },
+                  "field": "messages"
+                }
+              ]
+            }
+          ]
+        },
+        "webhookUrl": "https://n8n.digitalbank365.com/webhook/facebook-webhook",
+        "executionMode": "production"
+      }
+    ],
+    "Meta-Webhook-Post1": [
+      {
+        "headers": {
+          "host": "n8n.digitalbank365.com",
+          "x-forwarded-host": "n8n.digitalbank365.com",
+          "x-forwarded-port": "443",
+          "x-forwarded-proto": "https",
+          "x-real-ip": "102.213.48.254",
+          "x-forwarded-for": "102.213.48.254",
+          "connection": "upgrade",
+          "content-length": "789",
+          "accept": "text/plain, application/json, application/*+json, */*",
+          "content-type": "application/json",
+          "user-agent": "Java/17.0.17"
+        },
+        "params": {},
+        "query": {},
+        "body": {
+          "ticketNumber": "TICK-QPAna0kN",
+          "ticketMessageId": "wamid.HBgMMjU0NzQ2NzAzNTExFQIAEhggQUNDRUU0ODVCQ0M1NUVGRjVDRTdBN0Y3Mzk5MEM2MTEA",
+          "replyMessageId": "reply-TICK-QPAna0kN-3c177ae9-7308-461a-a263-de8c476cc12d",
+          "source": "whatsapp",
+          "channel": "whatsapp",
+          "senderId": "254746703511",
+          "customerId": "254746703511",
+          "recipientId": "1183763654813703",
+          "customerMessageId": "wamid.HBgMMjU0NzQ2NzAzNTExFQIAEhggQUMzNzNCRjYxODk5MUM1ODY2RDJEQzI0QzlGMjBGRTcA",
+          "customerMessage": "I don't have collateral I told you I need 50k",
+          "message": "you can also visit the nearest branch for more information",
+          "reply": "you can also visit the nearest branch for more information",
+          "agentUsername": "sw54903",
+          "agentFirstName": "Samuel",
+          "sentByUsername": "sw54903",
+          "sentByFirstName": "Samuel",
+          "sentAt": "2026-09-28T16:25:39.769789334"
+        },
+        "webhookUrl": "https://n8n.digitalbank365.com/webhook/ReplyMeta",
+        "executionMode": "production"
+      }
+    ]
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "d7ea0ca5b6e9adeb44032ccc26ac23e80bd264bfa7ec80a1a9e333ecf0de21b9"
+  }
+}

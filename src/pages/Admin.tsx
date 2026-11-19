@@ -19,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
-import { Edit, Loader2, RefreshCw, Shield, Trash2, UserPlus, UserX } from "lucide-react";
+import { Edit, KeyRound, Loader2, RefreshCw, Shield, Trash2, UserPlus, UserX } from "lucide-react";
 
 interface UserProfile {
   id: number;
@@ -30,6 +30,7 @@ interface UserProfile {
   email?: string | null;
   deleted?: boolean;
   locked?: boolean;
+  forcePasswordChange?: boolean;
   role?: RoleOption[];
 }
 
@@ -116,6 +117,7 @@ const Admin = () => {
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
   const [deleteUser, setDeleteUser] = useState<UserProfile | null>(null);
   const [suspendUser, setSuspendUser] = useState<UserProfile | null>(null);
+  const [unlockUser, setUnlockUser] = useState<UserProfile | null>(null);
   const [removeRoleConfirm, setRemoveRoleConfirm] = useState<{
     user: UserProfile;
     role: RoleOption;
@@ -327,6 +329,26 @@ const Admin = () => {
     }
   };
 
+  const handleUnlockUser = async () => {
+    if (!unlockUser) return;
+
+    try {
+      await apiFetch(`/api/users/${unlockUser.id}/unlock`, { method: "PUT" });
+      toast({
+        title: "User unlocked",
+        description: "A temporary password has been sent to the user's email.",
+      });
+      setUnlockUser(null);
+      await fetchUsers();
+    } catch (error: unknown) {
+      toast({
+        title: "User not unlocked",
+        description: getErrorMessage(error, "Unable to unlock user."),
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleAssignRole = async () => {
     if (!selectedUser || !selectedRoleId) return;
 
@@ -424,7 +446,7 @@ const Admin = () => {
                       <TableCell>{profile.email || "-"}</TableCell>
                       <TableCell>
                         <Badge variant={profile.locked ? "destructive" : "secondary"}>
-                          {profile.locked ? "Locked" : "Active"}
+                          {profile.locked ? "Locked" : profile.forcePasswordChange ? "Password Change" : "Active"}
                         </Badge>
                       </TableCell>
                       <TableCell>
@@ -461,6 +483,12 @@ const Admin = () => {
                             <Edit className="h-4 w-4" />
                             Edit
                           </Button>
+                          {profile.locked && (
+                            <Button type="button" variant="ghost" size="sm" onClick={() => setUnlockUser(profile)}>
+                              <KeyRound className="h-4 w-4" />
+                              Unlock
+                            </Button>
+                          )}
                           <Button type="button" variant="ghost" size="sm" onClick={() => setSuspendUser(profile)}>
                             <UserX className="h-4 w-4" />
                             Suspend
@@ -622,6 +650,24 @@ const Admin = () => {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleSuspendUser} className="bg-destructive hover:bg-destructive/90">
               Suspend User
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={Boolean(unlockUser)} onOpenChange={(open) => { if (!open) setUnlockUser(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unlock User</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will unlock <strong>{unlockUser?.username}</strong>, generate a temporary password, and email it to{" "}
+              <strong>{unlockUser?.email}</strong>.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleUnlockUser}>
+              Unlock User
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

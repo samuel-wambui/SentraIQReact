@@ -2,12 +2,13 @@
 
 ## 1. Purpose and scope
 
-SenctraIQ is a customer-support operations application for receiving, classifying, assigning, answering, handing over, and reporting on conversations from social channels. The current UI recognizes four channels:
+SenctraIQ is a customer-support operations application for receiving, classifying, assigning, answering, handing over, and reporting on conversations from social channels. The current UI recognizes five channels:
 
 - WhatsApp
 - Facebook
 - X (Twitter)
 - Instagram
+- Telegram
 
 The system is split across these runtime components:
 
@@ -130,7 +131,7 @@ Authenticated pages share `Layout`, which provides:
 
 ### 3.6 Dashboard
 
-The agent dashboard loads ticket queues through `useConversations`. It displays one card per recognized channel, showing total and unassigned/new counts. Selecting a channel opens the new-ticket view in `/messages`.
+The analytics dashboard loads ticket message data from `/api/v1/tickets`. Facebook, X, and Instagram `COMMENT` and `MENTION` activity appears under the corresponding Comments subcategory. `DIRECT_MESSAGE` activity from every recognized channel remains under Direct Messages. Combined shows all recognized channels. Selecting a recent interaction opens its ticket in `/messages`.
 
 ### 3.7 Message and ticket workspace
 

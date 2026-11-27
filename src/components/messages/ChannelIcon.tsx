@@ -1,4 +1,4 @@
-import { Instagram, Phone } from "lucide-react";
+import { Instagram, Phone, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConversationChannel } from "@/lib/conversations";
 
@@ -46,6 +46,20 @@ export const ChannelIcon = ({ channel, className }: ChannelIconProps) => {
         aria-hidden="true"
       >
         <Instagram className="h-5 w-5" />
+      </span>
+    );
+  }
+
+  if (channel === "telegram") {
+    return (
+      <span
+        className={cn(
+          "inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#229ED9] text-white",
+          className
+        )}
+        aria-hidden="true"
+      >
+        <Send className="h-5 w-5" />
       </span>
     );
   }

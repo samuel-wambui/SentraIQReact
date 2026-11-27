@@ -23,6 +23,7 @@ import {
 } from "recharts";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ChannelIcon } from "@/components/messages/ChannelIcon";
 import { CustomerAvatar } from "@/components/messages/CustomerAvatar";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -37,17 +38,18 @@ import {
   SUPPORTED_CHANNELS,
   type ConversationChannel,
 } from "@/lib/conversations";
+import { MessageInteractionsApi, type MessageInteractionDTO } from "@/lib/interactions";
 import { ticketToConversation, TicketsApi, type TicketMessageDTO, type TicketResponseDTO } from "@/lib/tickets";
 
 type Sentiment = "positive" | "neutral" | "negative";
 type Period = "7d" | "30d" | "90d";
-type InteractionType = "MENTION" | "DIRECT_MESSAGE";
-type DashboardView = "mentions" | "directMessages" | "combined";
+type InteractionType = "COMMENT" | "MENTION" | "DIRECT_MESSAGE";
+type DashboardView = "comments" | "mentions" | "directMessages";
 
 interface DashboardInteraction {
   id: string;
-  ticketNumber: string;
-  queueView: "new" | "active" | "handover";
+  ticketNumber: string | null;
+  queueView: "new" | "active" | "handover" | null;
   channel: ConversationChannel;
   interactionType: InteractionType | null;
   handlingLabel: string;
@@ -58,6 +60,7 @@ interface DashboardInteraction {
   time: number;
   sentiment: Sentiment | null;
   category: string;
+  sourceUrl: string | null;
 }
 
 interface CategoryRow {
@@ -91,10 +94,11 @@ const PERIOD_LABELS: Record<Period, string> = {
 };
 
 const DASHBOARD_CHANNELS = SUPPORTED_CHANNELS;
+const COMMENT_CHANNELS = new Set<ConversationChannel>(["facebook", "x", "instagram"]);
 const DASHBOARD_VIEWS: Array<{ id: DashboardView; label: string }> = [
+  { id: "comments", label: "Comments" },
   { id: "mentions", label: "Mentions" },
   { id: "directMessages", label: "Direct Messages" },
-  { id: "combined", label: "Combined" },
 ];
 
 const formatNumber = (value: number) => value.toLocaleString();
@@ -115,9 +119,80 @@ const normalizeSentiment = (value?: string | null): Sentiment | null => {
 
 const normalizeInteractionType = (value?: string | null): InteractionType | null => {
   const normalized = String(value ?? "").trim().toUpperCase().replace(/[\s-]+/g, "_");
+  if (["COMMENT", "NORMAL_COMMENT", "POST_COMMENT"].includes(normalized)) return "COMMENT";
   if (normalized === "MENTION") return "MENTION";
   if (["DIRECT_MESSAGE", "DM", "PRIVATE_MESSAGE"].includes(normalized)) return "DIRECT_MESSAGE";
   return null;
+};
+
+const getInteractionTypeLabel = (interaction: DashboardInteraction) => {
+  if (interaction.interactionType === "COMMENT") return "Comment";
+  if (interaction.interactionType === "MENTION") return "Mention";
+  return "Direct message";
+};
+
+const normalizeHttpUrl = (value?: string | null) => {
+  const candidate = String(value ?? "").trim();
+  if (!candidate) return null;
+
+  try {
+    const url = new URL(candidate);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
+};
+
+const getInteractionCustomer = (interaction: MessageInteractionDTO) => {
+  const senderName = String(interaction.senderName ?? "").trim();
+  if (senderName && !normalizeHttpUrl(senderName)) return senderName;
+  return String(interaction.senderId ?? "").trim() || "Customer";
+};
+
+const getSocialDashboardInteractions = (
+  response: MessageInteractionDTO[]
+): DashboardInteraction[] => {
+  const interactions = new Map<string, DashboardInteraction>();
+
+  response.forEach((item) => {
+    const channel = normalizeConversationChannel(item.source);
+    const interactionType = normalizeInteractionType(item.interactionType);
+    const text = String(item.comment ?? "").trim();
+    const time = item.receivedAt ? new Date(item.receivedAt).getTime() : Number.NaN;
+    if (
+      !channel ||
+      !COMMENT_CHANNELS.has(channel) ||
+      !interactionType ||
+      interactionType === "DIRECT_MESSAGE" ||
+      !text ||
+      Number.isNaN(time)
+    ) {
+      return;
+    }
+
+    const recordId = String(item.commentId ?? "").trim() || `${time}-${text}`;
+    const id = `social:${channel}:${interactionType}:${recordId}`;
+    if (interactions.has(id)) return;
+
+    interactions.set(id, {
+      id,
+      ticketNumber: null,
+      queueView: null,
+      channel,
+      interactionType,
+      handlingLabel: "Social interaction",
+      handedOverByAi: false,
+      customer: getInteractionCustomer(item),
+      profilePictureUrl: null,
+      text,
+      time,
+      sentiment: normalizeSentiment(item.sentiment),
+      category: String(item.category ?? "").trim(),
+      sourceUrl: normalizeHttpUrl(item.url),
+    });
+  });
+
+  return [...interactions.values()];
 };
 
 const getDashboardInteractions = (tickets: TicketResponseDTO[]): DashboardInteraction[] => {
@@ -160,7 +235,9 @@ const getDashboardInteractions = (tickets: TicketResponseDTO[]): DashboardIntera
       const isLatestMessage = Boolean(messageId && messageId === ticket.latestMessageId);
       const sentiment = normalizeSentiment(sentimentRecord?.sentiment ?? (isLatestMessage ? ticket.sentiment : null));
       const category = String(sentimentRecord?.category ?? (isLatestMessage ? ticket.category : "") ?? "").trim();
-      const interactionType = normalizeInteractionType(message.interactionType) ?? (channel === "whatsapp" ? "DIRECT_MESSAGE" : null);
+      const interactionType =
+        normalizeInteractionType(message.interactionType) ??
+        (["whatsapp", "telegram"].includes(channel) ? "DIRECT_MESSAGE" : null);
       const recordId = message.id ?? messageId ?? `${ticket.ticketNumber}-${time}-${text}`;
       const id = `${channel}:${recordId}`;
 
@@ -179,6 +256,7 @@ const getDashboardInteractions = (tickets: TicketResponseDTO[]): DashboardIntera
           time,
           sentiment,
           category,
+          sourceUrl: null,
         });
       }
     });
@@ -217,9 +295,10 @@ const Dashboard = () => {
   const { accessToken } = useAuth();
   const navigate = useNavigate();
   const [period, setPeriod] = useState<Period>("7d");
-  const [view, setView] = useState<DashboardView>("combined");
+  const [view, setView] = useState<DashboardView>("directMessages");
   const [expandedSentiment, setExpandedSentiment] = useState<Sentiment | null>(null);
   const [tickets, setTickets] = useState<TicketResponseDTO[]>([]);
+  const [socialInteractions, setSocialInteractions] = useState<MessageInteractionDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
@@ -227,6 +306,7 @@ const Dashboard = () => {
   const loadDashboard = useCallback(async () => {
     if (!accessToken) {
       setTickets([]);
+      setSocialInteractions([]);
       setLoading(false);
       return;
     }
@@ -234,8 +314,37 @@ const Dashboard = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await TicketsApi.getAllTickets();
-      setTickets(response.filter((ticket) => !ticket.ticketDeleted));
+      const [ticketsResult, interactionsResult] = await Promise.allSettled([
+        TicketsApi.getAllTickets(),
+        MessageInteractionsApi.getInteractions(),
+      ]);
+      const loadErrors: string[] = [];
+
+      if (ticketsResult.status === "fulfilled") {
+        setTickets(ticketsResult.value.filter((ticket) => !ticket.ticketDeleted));
+      } else {
+        loadErrors.push(
+          ticketsResult.reason instanceof Error
+            ? `Direct messages: ${ticketsResult.reason.message}`
+            : "Unable to load direct messages."
+        );
+      }
+
+      if (interactionsResult.status === "fulfilled") {
+        setSocialInteractions(interactionsResult.value);
+      } else {
+        loadErrors.push(
+          interactionsResult.reason instanceof Error
+            ? `Comments and mentions: ${interactionsResult.reason.message}`
+            : "Unable to load comments and mentions."
+        );
+      }
+
+      if (loadErrors.length === 2) {
+        throw new Error(loadErrors.join(" "));
+      }
+
+      setError(loadErrors.length ? loadErrors.join(" ") : null);
       setUpdatedAt(new Date());
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unable to load dashboard data.");
@@ -255,18 +364,28 @@ const Dashboard = () => {
     const end = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
     const startTime = start.getTime();
     const endTime = end.getTime();
-    const periodInteractions = getDashboardInteractions(tickets).filter((interaction) => interaction.time >= startTime && interaction.time < endTime);
-    const unclassifiedInteractions = periodInteractions.filter((interaction) => !interaction.interactionType).length;
-    const selectedType = view === "mentions" ? "MENTION" : view === "directMessages" ? "DIRECT_MESSAGE" : null;
-    const selectedInteractions = selectedType
-      ? periodInteractions.filter((interaction) => interaction.interactionType === selectedType)
-      : periodInteractions;
+    const ticketInteractions = getDashboardInteractions(tickets).filter(
+      (interaction) => interaction.interactionType === "DIRECT_MESSAGE"
+    );
+    const periodInteractions = [
+      ...getSocialDashboardInteractions(socialInteractions),
+      ...ticketInteractions,
+    ].filter((interaction) => interaction.time >= startTime && interaction.time < endTime);
+    const selectedInteractionType: InteractionType =
+      view === "comments" ? "COMMENT" : view === "mentions" ? "MENTION" : "DIRECT_MESSAGE";
+    const selectedInteractions = periodInteractions.filter(
+      (interaction) => interaction.interactionType === selectedInteractionType
+    );
+    const selectedChannels = DASHBOARD_CHANNELS.filter(({ id }) => {
+      if (view !== "directMessages") return COMMENT_CHANNELS.has(id);
+      return true;
+    });
 
     const sentimentCounts: Record<Sentiment, number> = { positive: 0, neutral: 0, negative: 0 };
     const channels = new Map<ConversationChannel, ChannelRow>();
     const categories = new Map<string, CategoryRow>();
 
-    DASHBOARD_CHANNELS.forEach(({ id, label }) => {
+    selectedChannels.forEach(({ id, label }) => {
       channels.set(id, { channel: id, label, total: 0, positive: 0, neutral: 0, negative: 0 });
     });
 
@@ -313,28 +432,26 @@ const Dashboard = () => {
 
     return {
       totalInteractions: selectedInteractions.length,
-      unclassifiedInteractions,
       sentimentCounts,
-      classifiedMentions: sentimentCounts.positive + sentimentCounts.neutral + sentimentCounts.negative,
+      classifiedInteractions: sentimentCounts.positive + sentimentCounts.neutral + sentimentCounts.negative,
       channelRows,
       categoryRows,
       trendRows,
       recentInteractions: [...selectedInteractions].sort((first, second) => second.time - first.time),
     };
-  }, [period, tickets, view]);
+  }, [period, socialInteractions, tickets, view]);
 
   const topicRows = data.categoryRows.slice(0, 5);
   const allTopicRows = data.categoryRows;
   const mostActiveChannel = [...data.channelRows].sort((first, second) => second.total - first.total)[0];
   const mostNegativeTopic = [...data.categoryRows].sort((first, second) => second.negative - first.negative)[0];
+  const viewLabel = view === "comments" ? "Comments" : view === "mentions" ? "Mentions" : "Direct Messages";
   const metricCards = [
-    { label: view === "combined" ? "Combined Interactions" : view === "mentions" ? "Mentions" : "Direct Messages", value: data.totalInteractions, icon: MessageSquareText, color: "#60a5fa", text: "Selected period", sentiment: null as Sentiment | null },
+    { label: viewLabel, value: data.totalInteractions, icon: MessageSquareText, color: "#60a5fa", text: "Selected period", sentiment: null as Sentiment | null },
     { label: "Positive", value: data.sentimentCounts.positive, icon: Smile, color: SENTIMENT_COLORS.positive, text: `${formatPercent(data.sentimentCounts.positive, data.totalInteractions)} of interactions`, sentiment: "positive" as Sentiment },
     { label: "Neutral", value: data.sentimentCounts.neutral, icon: Meh, color: SENTIMENT_COLORS.neutral, text: `${formatPercent(data.sentimentCounts.neutral, data.totalInteractions)} of interactions`, sentiment: "neutral" as Sentiment },
     { label: "Negative", value: data.sentimentCounts.negative, icon: Frown, color: SENTIMENT_COLORS.negative, text: `${formatPercent(data.sentimentCounts.negative, data.totalInteractions)} of interactions`, sentiment: "negative" as Sentiment },
   ];
-  const viewLabel = view === "mentions" ? "Mentions" : view === "directMessages" ? "Direct Messages" : "Combined Interactions";
-
   const insights = [
     mostActiveChannel?.total
       ? { icon: Activity, color: "text-sky-300", text: `${mostActiveChannel.label} has the most ${viewLabel.toLowerCase()} (${formatNumber(mostActiveChannel.total)}).` }
@@ -342,8 +459,8 @@ const Dashboard = () => {
     mostNegativeTopic?.negative
       ? { icon: CircleAlert, color: "text-rose-300", text: `${mostNegativeTopic.category} has the most negative messages (${formatNumber(mostNegativeTopic.negative)}).` }
       : null,
-    data.classifiedMentions
-      ? { icon: Smile, color: "text-emerald-300", text: `${formatPercent(data.sentimentCounts.positive, data.classifiedMentions)} of classified messages are positive.` }
+    data.classifiedInteractions
+      ? { icon: Smile, color: "text-emerald-300", text: `${formatPercent(data.sentimentCounts.positive, data.classifiedInteractions)} of classified messages are positive.` }
       : null,
   ].filter((item): item is NonNullable<typeof item> => Boolean(item));
 
@@ -398,16 +515,10 @@ const Dashboard = () => {
         </div>
       )}
 
-      {view !== "combined" && data.unclassifiedInteractions > 0 && (
-        <div className="mb-3 rounded-md border border-amber-800/70 bg-amber-950/40 px-3 py-2 text-xs text-amber-200" role="status">
-          {formatNumber(data.unclassifiedInteractions)} interactions are missing an interaction type from the API and are excluded from this view.
-        </div>
-      )}
-
       {loading && !updatedAt ? (
         <div className="flex min-h-72 items-center justify-center gap-2 rounded-md border border-[#26344a] bg-[#111b2b] text-sm text-slate-300">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading analytics from the ticket API
+          Loading messages, comments, and mentions
         </div>
       ) : error && !updatedAt ? (
         <div className="flex min-h-72 flex-col items-center justify-center gap-3 rounded-md border border-[#26344a] bg-[#111b2b] text-sm text-slate-300">
@@ -433,19 +544,55 @@ const Dashboard = () => {
               );
 
               if (metric.sentiment) {
-                const isExpanded = expandedSentiment === metric.sentiment;
+                const sentiment = metric.sentiment;
+                const isExpanded = expandedSentiment === sentiment;
+                const sentimentChannels = data.channelRows.filter((channel) => channel[sentiment] > 0);
                 return (
-                  <button
+                  <Popover
                     key={metric.label}
-                    type="button"
-                    aria-expanded={isExpanded}
-                    aria-controls="sentiment-channel-breakdown"
-                    onClick={() => setExpandedSentiment(isExpanded ? null : metric.sentiment)}
-                    className={`flex min-h-[76px] w-full items-center gap-3 rounded-md border border-[#26344a] border-l-[3px] bg-[#111b2b] px-3 py-2 text-left transition-colors hover:bg-[#172338] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 ${isExpanded ? "ring-1 ring-sky-500/60" : ""}`}
-                    style={{ borderLeftColor: metric.color }}
+                    open={isExpanded}
+                    onOpenChange={(open) => setExpandedSentiment(open ? sentiment : null)}
                   >
-                    {content}
-                  </button>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className={`flex min-h-[76px] w-full items-center gap-3 rounded-md border border-[#26344a] border-l-[3px] bg-[#111b2b] px-3 py-2 text-left transition-colors hover:bg-[#172338] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 ${isExpanded ? "ring-1 ring-sky-500/60" : ""}`}
+                        style={{ borderLeftColor: metric.color }}
+                      >
+                        {content}
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      side="bottom"
+                      align="center"
+                      sideOffset={8}
+                      collisionPadding={12}
+                      className="sentiment-bubble w-max min-w-48 max-w-[calc(100vw-1.5rem)] rounded-2xl border-[#344258] bg-[#111b2b] p-3 text-white shadow-2xl shadow-black/50 sm:max-w-sm"
+                      aria-label={`${sentiment} interactions by channel`}
+                    >
+                      <div className="mb-2 text-[10px] font-semibold capitalize text-slate-200">
+                        {sentiment} by channel
+                      </div>
+                      {sentimentChannels.length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {sentimentChannels.map((channel) => (
+                            <div
+                              key={channel.channel}
+                              className="inline-flex items-center gap-1 rounded-full border border-[#344258] bg-[#182438] py-1 pl-1 pr-2 text-[10px]"
+                            >
+                              <ChannelIcon channel={channel.channel} className="h-5 w-5 shrink-0" />
+                              <span className="font-bold text-white">{formatNumber(channel[sentiment])}</span>
+                              <span className="text-slate-300">{channel.label}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-[10px] text-slate-400">
+                          No {sentiment} interactions for the selected view and period.
+                        </p>
+                      )}
+                    </PopoverContent>
+                  </Popover>
                 );
               }
 
@@ -455,23 +602,6 @@ const Dashboard = () => {
                 </section>
               );
             })}
-          </div>
-
-          <div id="sentiment-channel-breakdown" hidden={!expandedSentiment}>
-            {expandedSentiment && (
-              <div className="mb-3 rounded-md border border-[#26344a] bg-[#111b2b] px-3 py-2" role="region" aria-label={`${expandedSentiment} interactions by channel`}>
-                <div className="mb-2 text-[10px] font-semibold capitalize text-slate-200">{expandedSentiment} by channel</div>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
-                  {data.channelRows.map((channel) => (
-                    <div key={channel.channel} className="flex min-w-0 items-center gap-2 text-[10px]">
-                      <ChannelIcon channel={channel.channel} className="h-4 w-4 shrink-0" />
-                      <span className="min-w-0 flex-1 truncate text-slate-300">{channel.label}</span>
-                      <span className="font-semibold text-white">{formatNumber(channel[expandedSentiment])}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
 
           <div className="mb-3 grid grid-cols-1 gap-3 xl:grid-cols-12">
@@ -498,7 +628,7 @@ const Dashboard = () => {
               </div>
             </Panel>
 
-            <Panel title="Top Topics" note={`By ${viewLabel.toLowerCase()}`} className="h-56 xl:col-span-3">
+            <Panel title="Top Topics" note={`By ${viewLabel.toLowerCase()}`} className="xl:col-span-3">
               {allTopicRows.length === 0 ? <EmptyPanel>No categorized messages in this period.</EmptyPanel> : (
                 <div className="max-h-40 space-y-3 overflow-y-auto overscroll-contain py-1 pr-1">
                   {allTopicRows.map((topic) => (
@@ -555,39 +685,61 @@ const Dashboard = () => {
             <Panel title="Recent Interactions" note={`${formatNumber(data.recentInteractions.length)} total`} className="h-64">
               {data.recentInteractions.length === 0 ? <EmptyPanel>No recent {viewLabel.toLowerCase()} in this period.</EmptyPanel> : (
                 <div className="max-h-36 divide-y divide-[#26344a] overflow-y-auto overscroll-contain pr-1" role="feed" aria-label="Recent interactions, newest first">
-                  {data.recentInteractions.map((interaction) => (
-                    <button
-                      key={interaction.id}
-                      type="button"
-                      onClick={() => navigate(`/messages?view=${interaction.queueView}&channel=${encodeURIComponent(interaction.channel)}&ticket=${encodeURIComponent(interaction.ticketNumber)}`)}
-                      aria-label={`Open ${interaction.customer}'s ${interaction.channel} chat`}
-                      className="flex w-full min-w-0 items-start gap-2 py-1.5 text-left hover:bg-[#182438] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-500 first:pt-0 last:pb-0"
-                    >
-                      <CustomerAvatar
-                        profilePictureUrl={interaction.profilePictureUrl}
-                        label={interaction.customer}
-                        className="mt-0.5 h-5 w-5"
-                        fallbackClassName="text-[9px]"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex min-w-0 items-baseline gap-2">
-                          <span className="truncate text-[10px] font-semibold text-slate-100">{interaction.customer}</span>
-                          {interaction.interactionType && <span className="shrink-0 text-[9px] text-sky-300">{interaction.interactionType === "MENTION" ? "Mention" : "Direct message"}</span>}
-                          <span className="shrink-0 text-[9px] text-slate-500">{formatDistanceToNow(new Date(interaction.time), { addSuffix: true })}</span>
+                  {data.recentInteractions.map((interaction) => {
+                    const hasTicketDestination = Boolean(interaction.queueView && interaction.ticketNumber);
+                    const hasDestination = hasTicketDestination || Boolean(interaction.sourceUrl);
+
+                    return (
+                      <button
+                        key={interaction.id}
+                        type="button"
+                        disabled={!hasDestination}
+                        onClick={() => {
+                          if (hasTicketDestination) {
+                            navigate(
+                              `/messages?view=${interaction.queueView}&channel=${encodeURIComponent(interaction.channel)}&ticket=${encodeURIComponent(interaction.ticketNumber!)}`
+                            );
+                            return;
+                          }
+                          if (interaction.sourceUrl) {
+                            window.open(interaction.sourceUrl, "_blank", "noopener,noreferrer");
+                          }
+                        }}
+                        aria-label={
+                          hasTicketDestination
+                            ? `Open ${interaction.customer}'s ${interaction.channel} chat`
+                            : interaction.sourceUrl
+                            ? `Open ${interaction.customer}'s original ${getInteractionTypeLabel(interaction).toLowerCase()}`
+                            : `${interaction.customer}'s ${getInteractionTypeLabel(interaction).toLowerCase()}`
+                        }
+                        className="flex w-full min-w-0 items-start gap-2 py-1.5 text-left enabled:hover:bg-[#182438] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-500 disabled:cursor-default first:pt-0 last:pb-0"
+                      >
+                        <CustomerAvatar
+                          profilePictureUrl={interaction.profilePictureUrl}
+                          label={interaction.customer}
+                          className="mt-0.5 h-5 w-5"
+                          fallbackClassName="text-[9px]"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex min-w-0 items-baseline gap-2">
+                            <span className="truncate text-[10px] font-semibold text-slate-100">{interaction.customer}</span>
+                            <span className="shrink-0 text-[9px] text-sky-300">{getInteractionTypeLabel(interaction)}</span>
+                            <span className="shrink-0 text-[9px] text-slate-500">{formatDistanceToNow(new Date(interaction.time), { addSuffix: true })}</span>
+                          </div>
+                          <p className="line-clamp-1 text-[10px] text-slate-300">{interaction.text}</p>
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            <span className="rounded bg-[#26344a] px-1.5 py-0.5 text-[9px] text-slate-200">{interaction.handlingLabel}</span>
+                            {interaction.handedOverByAi && <span className="rounded bg-sky-950 px-1.5 py-0.5 text-[9px] text-sky-300">Handed over by AI</span>}
+                          </div>
                         </div>
-                        <p className="line-clamp-1 text-[10px] text-slate-300">{interaction.text}</p>
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          <span className="rounded bg-[#26344a] px-1.5 py-0.5 text-[9px] text-slate-200">{interaction.handlingLabel}</span>
-                          {interaction.handedOverByAi && <span className="rounded bg-sky-950 px-1.5 py-0.5 text-[9px] text-sky-300">Handed over by AI</span>}
-                        </div>
-                      </div>
-                      {interaction.sentiment && (
-                        <span className="shrink-0 rounded px-1.5 py-0.5 text-[9px] capitalize" style={{ color: SENTIMENT_COLORS[interaction.sentiment], backgroundColor: `${SENTIMENT_COLORS[interaction.sentiment]}1a` }}>
-                          {interaction.sentiment}
-                        </span>
-                      )}
-                    </button>
-                  ))}
+                        {interaction.sentiment && (
+                          <span className="shrink-0 rounded px-1.5 py-0.5 text-[9px] capitalize" style={{ color: SENTIMENT_COLORS[interaction.sentiment], backgroundColor: `${SENTIMENT_COLORS[interaction.sentiment]}1a` }}>
+                            {interaction.sentiment}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
               <button type="button" className="mt-2 flex w-full items-center justify-end border-t border-[#26344a] pt-2 text-[10px] font-medium text-sky-300 hover:text-sky-200" onClick={() => navigate("/messages?view=new")}>

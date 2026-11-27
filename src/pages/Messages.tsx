@@ -1034,7 +1034,7 @@ const Messages = () => {
 
       {currentView === "new" && !selectedChannel && !globalSearch && !selectedConversationId && (
         <section className="space-y-3">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             {channelStats.map((channel) => (
               <Card
                 key={channel.id}
@@ -1126,9 +1126,11 @@ const Messages = () => {
                           className={`w-full border-b border-[#26344a] px-4 py-4 text-left text-slate-100 transition hover:bg-[#182438] ${selected ? "border-l-[3px] border-l-sky-500 bg-[#182438]" : "border-l-[3px] border-l-transparent"}`}
                         >
                           <div className="flex items-start gap-3">
-                            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#1d2b40] text-sm font-semibold text-slate-200">
-                              {getConversationCustomerLabel(conversation).slice(0, 1).toUpperCase()}
-                            </span>
+                            <CustomerAvatar
+                              profilePictureUrl={getProfilePictureUrl(latestMessage, conversation)}
+                              label={getConversationCustomerLabel(conversation)}
+                              fallbackClassName="bg-[#1d2b40] text-slate-200"
+                            />
                             <span className="min-w-0 flex-1">
                               <span className="flex items-center justify-between gap-2">
                                 <span className="truncate text-sm font-semibold text-slate-100">{getConversationCustomerLabel(conversation)}</span>

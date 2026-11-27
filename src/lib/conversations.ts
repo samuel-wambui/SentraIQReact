@@ -1,6 +1,6 @@
 import { apiFetch } from "@/lib/api";
 
-export type ConversationChannel = "whatsapp" | "facebook" | "x" | "instagram";
+export type ConversationChannel = "whatsapp" | "facebook" | "x" | "instagram" | "telegram";
 
 export interface ConversationEntity {
   id?: number | string;
@@ -170,6 +170,7 @@ export const SUPPORTED_CHANNELS: Array<{ id: ConversationChannel; label: string 
   { id: "facebook", label: "Facebook" },
   { id: "x", label: "X" },
   { id: "instagram", label: "Instagram" },
+  { id: "telegram", label: "Telegram" },
 ];
 
 export const DEFAULT_CONVERSATION_STATUSES = [
@@ -199,6 +200,7 @@ export const normalizeConversationChannel = (value?: string | null): Conversatio
   if (normalized.includes("facebook") || normalized === "fb" || normalized.includes("messenger")) return "facebook";
   if (normalized === "x" || normalized === "xcom" || normalized.includes("twitter")) return "x";
   if (normalized.includes("instagram") || normalized === "ig") return "instagram";
+  if (normalized.includes("telegram") || normalized === "tg") return "telegram";
   return null;
 };
 

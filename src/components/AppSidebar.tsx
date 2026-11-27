@@ -73,7 +73,7 @@ export function AppSidebar() {
           <span className="flex h-8 w-10 shrink-0 items-center justify-center overflow-hidden rounded-sm bg-white px-0.5">
             <img src={equityLogo} alt="Equity" className="h-7 w-full object-contain" />
           </span>
-          {open && <span className="truncate text-sm font-semibold text-white">SentraIQ</span>}
+          {open && <span className="truncate text-sm font-semibold text-white">Bank 360</span>}
         </Link>
       </div>
       <SidebarContent className="gap-0 bg-[#101827] pt-3">

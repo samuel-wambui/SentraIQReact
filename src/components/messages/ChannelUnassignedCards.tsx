@@ -44,6 +44,7 @@ const channelTileColors: Record<ConversationChannel, string> = {
   facebook: "bg-[#4369a7]",
   whatsapp: "bg-[#168b62]",
   instagram: "bg-[#c83f6f]",
+  telegram: "bg-[#229ED9]",
   x: "bg-[#242424]",
 };
 
@@ -51,6 +52,7 @@ const channelIconColors: Record<ConversationChannel, string> = {
   facebook: "text-[#4267B2]",
   whatsapp: "text-[#128C7E]",
   instagram: "text-[#E1306C]",
+  telegram: "text-[#229ED9]",
   x: "text-black",
 };
 
@@ -77,7 +79,7 @@ export const ChannelUnassignedCards = ({ summary, loading = false }: ChannelUnas
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         {summary.map((channel) => (
           <ChannelTicketCard
             key={channel.channel}

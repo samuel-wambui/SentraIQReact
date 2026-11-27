@@ -312,7 +312,7 @@ export const MessageHistoryPanel = ({
       ) : null}
 
       {historyChannelBuckets.length > 0 && (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           {historyChannelBuckets.map((bucket) =>
             renderHistoryBucket(bucket, historyChannel === bucket.key, onSelectHistoryChannel, historyLoading)
           )}
